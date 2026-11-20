@@ -312,8 +312,10 @@ def cmd_train(args: argparse.Namespace) -> int:
     pick = PickModel.fit(m, w)
     pick.alpha, pick.beta = pm.alpha, pm.beta
     print(f"Pick model: alpha={pick.alpha:g}, beta={pick.beta:g}")
+    kappa, gamma = _tune_ranking(args, m, w, l2, pm, k)
     data = export.to_dict(model, m, export.game_counts(m, args.rank_factor), extra={
         "pick_model": export.pick_model_dict(pick),
+        "ranking": export.ranking_dict(kappa, gamma, model.strength_sd(m, w)),
         "patches": [{"date": p.date, "changes": p.changes} for p in plog],
         "weighting": {"half_life_days": args.half_life, "pre_patch_factor": args.pre_patch_factor,
                       "min_lobby_rank": args.min_lobby_rank, "rank_factor": args.rank_factor,
@@ -324,6 +326,36 @@ def cmd_train(args: argparse.Namespace) -> int:
           f"({int(m.masters_mask().sum()):,} all-Masters). "
           "Run `mira evaluate` for held-out accuracy.")
     return 0
+
+
+def _tune_ranking(args, m, w, l2, pick_fit, k: int) -> tuple[float, float]:
+    """kappa (uncertainty penalty) and gamma (pick-rate prior) for ranking our picks: fit on the
+    oldest 80% of matches, scored on the newest 20% (see evaluate.ranking_report)."""
+    import numpy as np
+
+    from .model import evaluate, export
+    from .model.winmodel import WinModel
+
+    if args.kappa is not None and args.gamma is not None:
+        return args.kappa, args.gamma
+    fit = m.subset(slice(0, k))
+    wm = WinModel.fit(fit, w[:k], l2)
+    games = np.array(export.game_counts(fit, args.rank_factor)["brawler_map"])
+    rows = evaluate.ranking_report(wm, pick_fit.log_base_tier, wm.strength_sd(fit, w[:k]), games,
+                                   m.subset(slice(k, None)))
+    best = evaluate.choose_ranking(rows)
+    covs = "/".join(f"{c:.0%}" for c in evaluate.COVERAGES)
+    print(f"Ranking our picks (held-out win rate of the {covs} of picks closest to our top choice; "
+          f"share with < {evaluate.RARE_GAMES} games on the map):")
+    for r in rows:
+        if r.kappa in (0.0, best.kappa) or r.gamma in (0.0, best.gamma):
+            mark = "  <-" if r is best else ""
+            print(f"  kappa={r.kappa:<4g} gamma={r.gamma:<5g} "
+                  + "  ".join(f"{x:.2%} (rare {q:.1%})" for x, q in zip(r.realized, r.rare)) + mark)
+    kappa = best.kappa if args.kappa is None else args.kappa
+    gamma = best.gamma if args.gamma is None else args.gamma
+    print(f"Ranking: kappa={kappa:g}, gamma={gamma:g}")
+    return kappa, gamma
 
 
 def _engine(args):
@@ -563,6 +595,10 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("train", help="fit the win model on all data and write model.json")
     model_args(sp)
     sp.add_argument("--out", default="model.json", help="output path (default: %(default)s)")
+    sp.add_argument("--kappa", type=float,
+                    help="fix the uncertainty penalty on our picks instead of tuning it (0 = off)")
+    sp.add_argument("--gamma", type=float,
+                    help="fix the pick-rate prior on our picks instead of tuning it (0 = off)")
     sp.add_argument("--tier-l2", type=float,
                     help="fix the per-tier strength penalty instead of tuning it (tier_mode gets 3x); "
                          "1000 keeps tiers close to the shared model, which `evaluate` showed is best for "

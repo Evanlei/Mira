@@ -1,5 +1,7 @@
 // Port of src/mira/engine/search.py: expectimax over the rest of a 1-2-2-1 draft.
 // Our turns take the best option; their turns weigh a typical Masters player's likely picks.
+// Our candidates are ranked and chosen with Model.adjust (uncertainty penalty + pick-rate prior);
+// reported win chances stay the plain win model's.
 
 import type { Model } from "./model";
 
@@ -78,7 +80,7 @@ export class Searcher {
       pool = [];
       for (let b = 0; b < this.m.B; b++) if (!taken.has(b)) pool.push(b);
     }
-    const gain = new Map(pool.map((b) => [b, this.m.gain(b, ours, theirs, this.mp)]));
+    const gain = new Map(pool.map((b) => [b, this.m.gain(b, ours, theirs, this.mp) + this.m.adjust(b, this.mp)]));
     pool.sort((a, b) => gain.get(b)! - gain.get(a)!);
     const top = pool.slice(0, this.s.ourK);
     if (size === 1) return top.map((b) => [b]);
@@ -111,6 +113,12 @@ export class Searcher {
     return top.map(([picks, p]) => [picks, p / z]);
   }
 
+  /** How we rank our own options: win chance plus the picks' adjustment, logit -> probability scale. */
+  private choice(o: Option): number {
+    const a = o.picks.reduce((acc, b) => acc + this.m.adjust(b, this.mp), 0);
+    return o.win + o.win * (1 - o.win) * a;
+  }
+
   value(ours: number[], theirs: number[], turns: [Side, number][]): number {
     const k = key(ours, theirs);
     const hit = this.memo.get(k);
@@ -123,7 +131,7 @@ export class Searcher {
     const options = this.expand(ours, theirs, turns);
     const v =
       turns[0][0] === "us"
-        ? Math.max(...options.map((o) => o.win))
+        ? options[0].win // sorted by choice(): the option we'd actually take
         : options.reduce((acc, o) => acc + (o.prob ?? 0) * o.win, 0);
     this.memo.set(k, { v, options });
     return v;
@@ -134,7 +142,7 @@ export class Searcher {
     const rest = turns.slice(1);
     if (side === "us") {
       const opts = this.ours(ours, theirs, size).map((p) => ({ picks: p, prob: null, win: this.value([...ours, ...p], theirs, rest) }));
-      return opts.sort((a, b) => b.win - a.win);
+      return opts.sort((a, b) => this.choice(b) - this.choice(a));
     }
     const opts = this.theirs(ours, theirs, size).map(([p, prob]) => ({
       picks: p,
@@ -178,7 +186,8 @@ export function suggestBans(
 ): BanSuggestion[] {
   const base = new Searcher(m, mp, new Set(alreadyBanned), allowed, BAN_SETTINGS).run([], [], weFirst).win;
   const p = m.pickProbs([], [], alreadyBanned, mp);
-  const threat = (b: number) => p.get(b)! * (1 + Math.max(0, m.strength(b, mp)));
+  // Pessimistic strength, so a noisy few-game brawler isn't a top ban candidate.
+  const threat = (b: number) => p.get(b)! * (1 + Math.max(0, m.strength(b, mp) - m.kappa * m.sdOf(b, mp)));
   const pool = [...p.keys()].sort((a, b) => threat(b) - threat(a)).slice(0, candidates);
   const out = pool.map((b) => {
     const win = new Searcher(m, mp, new Set([...alreadyBanned, b]), allowed, BAN_SETTINGS).run([], [], weFirst).win;

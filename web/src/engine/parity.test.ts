@@ -9,8 +9,11 @@ import { Model, type ModelJson } from "./model";
 import { Searcher, suggestBans, turnsRemaining } from "./search";
 
 const root = join(__dirname, "..", "..");
-const model = new Model(JSON.parse(readFileSync(join(root, "public", "model.json"), "utf8")) as ModelJson);
+const data = JSON.parse(readFileSync(join(root, "public", "model.json"), "utf8")) as ModelJson;
+const model = new Model(data);
 const fixtures = JSON.parse(readFileSync(join(__dirname, "parity.fixtures.json"), "utf8"));
+// Cases marked "ranking" use the fixtures' test ranking block (uncertainty penalty + pick-rate prior).
+const ranked = new Model({ ...data, ranking: fixtures.ranking });
 
 type Opt = { picks: number[]; prob: number | null; win: number };
 const sameOpts = (got: Opt[], want: Opt[]) => {
@@ -27,7 +30,7 @@ describe("parity with the Python engine", () => {
   const cases: [number, any][] = fixtures.cases.map((c: unknown, i: number) => [i, c]);
   it.each(cases)("case %i", (_i, c) => {
     const pool = c.allowed ? new Set<number>(c.allowed) : null;
-    const r = new Searcher(model.withTier(c.tier ?? model.tier), c.map, new Set(c.bans), pool).run(c.ours, c.theirs, c.we_first);
+    const r = new Searcher((c.ranking ? ranked : model).withTier(c.tier ?? model.tier), c.map, new Set(c.bans), pool).run(c.ours, c.theirs, c.we_first);
     expect(r.side).toBe(c.side);
     expect(r.turnSize).toBe(c.turn_size);
     expect(r.win).toBeCloseTo(c.win, 9);
@@ -45,6 +48,13 @@ describe("parity with the Python engine", () => {
     const got = suggestBans(model, b.map, b.we_first, new Set(), 5);
     expect(got.map((x) => x.brawler)).toEqual(b.result.map((x: { brawler: number }) => x.brawler));
     got.forEach((x, i) => expect(x.gain).toBeCloseTo(b.result[i].gain, 9));
+  });
+
+  it("ban suggestions with the ranking adjustment", () => {
+    const b = fixtures.bans;
+    const got = suggestBans(ranked, b.map, b.we_first, new Set(), 5);
+    expect(got.map((x) => x.brawler)).toEqual(b.result_ranked.map((x: { brawler: number }) => x.brawler));
+    got.forEach((x, i) => expect(x.gain).toBeCloseTo(b.result_ranked[i].gain, 9));
   });
 });
 

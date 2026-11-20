@@ -242,3 +242,114 @@ def run(m: Matches, patches=(), test_days: float = 7.0, half_life_days: float = 
         reasons.append(f"calibration error {mira.ece:.3f} > 0.03")
     return Report(split_desc, len(train), len(test), l2, scores, comparisons, not reasons, reasons,
                   len(masters_train))
+
+
+# -- ranking our picks: uncertainty penalty and usage-rate prior ---------------
+
+KAPPA_GRID = (0.0, 0.5, 1.0, 1.5, 2.0, 3.0)
+GAMMA_GRID = (0.0, 0.01, 0.02, 0.05, 0.1)
+COVERAGES = (0.05, 0.15, 0.30)
+RARE_GAMES = 100  # "few games": fewer than this on the map
+
+
+@dataclass
+class RankingRow:
+    kappa: float
+    gamma: float
+    realized: list[float]   # per coverage: real win rate of the held-out picks we'd rank best
+    predicted: list[float]  # per coverage: the win model's (plain) prediction for the same picks
+    n: list[int]            # per coverage: how many picks
+    rare: list[float]       # per coverage: share of those picks with < RARE_GAMES games on the map
+
+    def se(self, c: int) -> float:
+        r = self.realized[c]
+        return float(np.sqrt(r * (1 - r) / max(self.n[c], 1)))
+
+
+def _dense_pairs(model: WinModel):
+    """Symmetric synergy (B, B, n_modes) and antisymmetric matchup (B, B, n_modes) tables."""
+    t = model.tables()
+    syn = t["synergy"][:, :, None] + t["synergy_mode"]
+    mu = t["matchup"][:, :, None] + t["matchup_mode"]
+    return syn + syn.transpose(1, 0, 2), mu - mu.transpose(1, 0, 2)
+
+
+def strength_table(model: WinModel, mode_of_map: np.ndarray) -> np.ndarray:
+    """(n_tiers, B, n_maps) strength of each brawler on each map and tier."""
+    t = model.tables()
+    k = mode_of_map
+    s = t["global"][:, None] + t["mode"][:, k] + t["map"]                      # (B, n_maps)
+    return s[None] + t["tier"].T[:, :, None] + t["tier_mode"][:, :, k].transpose(1, 0, 2)
+
+
+def ranking_report(model: WinModel, log_base_tier: np.ndarray, sd: np.ndarray, games: np.ndarray, m: Matches,
+                   kappas=KAPPA_GRID, gammas=GAMMA_GRID, coverages=COVERAGES,
+                   max_matches: int = 40000) -> list[RankingRow]:
+    """How well each (kappa, gamma) ranks our picks, on held-out matches.
+
+    Every held-out pick is a situation (map, 2 allies, 3 enemies) and the brawler actually
+    played. Score every available brawler as the search does, gain - kappa * sd + gamma * log
+    pick rate, and measure how far the played brawler sits below the best-scored one. The
+    ``coverage`` share of picks closest to our top choice are "picks we'd have made"; a better
+    ranking has those win more. Comparing equal-sized sets keeps the settings fair: a ranking
+    that favours popular brawlers would otherwise match more picks and look worse for it.
+
+    Caveat: held-out games carry the same selection bias as training ones (a rarely played
+    brawler is mostly played by its mains), so this can show the penalty is free, not that it
+    helps. ``games`` is (B, n_maps) games per brawler per map."""
+    m = m.subset(slice(0, max_matches))
+    mode_of_map = np.array([m.modes.index(mode) for mode, _ in m.maps])
+    S = strength_table(model, mode_of_map)
+    syn, mu = _dense_pairs(model)
+    p0 = model.predict(m)
+    tier = m.tier_idx()
+
+    tgt, al, en, mp_, ti, yy, pp = [], [], [], [], [], [], []
+    for t in range(2):
+        mine, theirs = m.teams[:, t, :], m.teams[:, 1 - t, :]
+        for s in range(3):
+            tgt.append(mine[:, s]); al.append(np.delete(mine, s, axis=1)); en.append(theirs)
+            mp_.append(m.map_idx); ti.append(tier)
+            yy.append(m.y if t == 0 else 1 - m.y); pp.append(p0 if t == 0 else 1 - p0)
+    tgt, al, en = np.concatenate(tgt), np.concatenate(al), np.concatenate(en)
+    mp_, ti, yy, pp = np.concatenate(mp_), np.concatenate(ti), np.concatenate(yy), np.concatenate(pp)
+    k_ = mode_of_map[mp_]
+    rows_n = np.arange(len(tgt))
+
+    gain = S[ti, :, mp_].copy()                                   # (N, B)
+    for j in range(al.shape[1]):
+        gain += syn[:, al[:, j], k_].T
+    for j in range(en.shape[1]):
+        gain += mu[:, en[:, j], k_].T
+    unc, lb = sd[ti, :, mp_], log_base_tier[ti, :, mp_]
+    blocked = np.zeros_like(gain, dtype=bool)
+    for cols in (al, en):
+        for j in range(cols.shape[1]):
+            blocked[rows_n, cols[:, j]] = True
+    rare = games[tgt, mp_] < RARE_GAMES
+
+    out = []
+    for kappa in kappas:
+        for gamma in gammas:
+            score = gain - kappa * unc + gamma * lb
+            score[blocked] = -np.inf
+            regret = score[rows_n, tgt] - score.max(axis=1)  # 0 = they played our top choice
+            row = RankingRow(kappa, gamma, [], [], [], [])
+            for c in coverages:
+                sel = regret >= np.quantile(regret, 1 - c)
+                row.realized.append(float(yy[sel].mean())); row.predicted.append(float(pp[sel].mean()))
+                row.n.append(int(sel.sum())); row.rare.append(float(rare[sel].mean()))
+            out.append(row)
+    return out
+
+
+def choose_ranking(rows: list[RankingRow]) -> RankingRow:
+    """The one-standard-error rule: among settings whose picks win, at every coverage, within one
+    standard error of the best setting there, take the one that leans least on brawlers with few
+    games (then the gentlest). The penalty is bought only where held-out results can't tell it
+    costs anything."""
+    n_cov = len(rows[0].realized)
+    best = [max(rows, key=lambda r: r.realized[c]) for c in range(n_cov)]
+    ok = [r for r in rows if all(r.realized[c] >= best[c].realized[c] - best[c].se(c) for c in range(n_cov))]
+    mid = n_cov // 2
+    return min(ok, key=lambda r: (round(r.rare[mid], 3), r.kappa + 10 * r.gamma))

@@ -31,6 +31,8 @@ export type ModelJson = {
     enemy_lift: [number, number, number][];
   };
   games?: { brawler: number[]; brawler_map: number[][] };
+  /** How the search ranks our own candidates (Model.adjust). Absent in older files: off. */
+  ranking?: { kappa: number; gamma: number; strength_sd: number[][][] }; // sd: [n_tiers][B][n_maps]
   patches?: { date: string; changes: Record<string, string> }[];
 };
 
@@ -62,6 +64,9 @@ export class Model {
   readonly beta: number;
   private readonly logBase: number[][];
   private readonly games?: { brawler: number[]; brawler_map: number[][] };
+  readonly kappa: number;
+  readonly gamma: number;
+  private readonly sd?: number[][];
 
   constructor(
     readonly data: ModelJson,
@@ -100,6 +105,9 @@ export class Model {
     for (const [i, j, v] of p.ally_lift) this.ally[i * B + j] = this.ally[j * B + i] = v;
     for (const [i, j, v] of p.enemy_lift) this.enemy[i * B + j] = this.enemy[j * B + i] = v;
     this.games = data.games;
+    this.kappa = data.ranking?.kappa ?? 0;
+    this.gamma = data.ranking?.gamma ?? 0;
+    this.sd = data.ranking?.strength_sd?.[this.tier];
   }
 
   brawler(name: string): number {
@@ -175,6 +183,22 @@ export class Model {
     for (const a of ours) s += this.synergy(b, a, mp);
     for (const e of theirs) s += this.matchup(b, e, mp);
     return s;
+  }
+
+  /** Standard error of strength(b, mp): wide for brawlers with few games on the map. */
+  sdOf(b: number, mp: number): number {
+    return this.sd ? this.sd[b][mp] : 0;
+  }
+
+  /**
+   * Logit-scale bonus used only to rank and choose our picks, never in a reported win chance:
+   * -kappa * sd reads a noisy estimate pessimistically (so the fewest-games brawler doesn't top the
+   * list on noise), +gamma * log pick rate counts what Masters players actually pick on the map.
+   */
+  adjust(b: number, mp: number): number {
+    let a = this.kappa ? -this.kappa * this.sdOf(b, mp) : 0;
+    if (this.gamma) a += this.gamma * this.logBase[b][mp];
+    return a;
   }
 
   // -- pick model -------------------------------------------------------------

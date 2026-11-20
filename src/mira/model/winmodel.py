@@ -218,3 +218,43 @@ class WinModel:
             "tier": self.layout.block(self.w, "tier").reshape(B, self.layout.n_tiers),
             "tier_mode": self.layout.block(self.w, "tier_mode").reshape(B, self.layout.n_tiers, nm),
         }
+
+    # -- uncertainty ----------------------------------------------------------
+
+    def strength_sd(self, m: Matches, weights: np.ndarray | None = None) -> np.ndarray:
+        """(n_tiers, B, n_maps) standard error of each brawler's strength on each map and tier.
+
+        Laplace approximation: the inverse Hessian of the penalized loss, restricted to one
+        brawler's own strength terms (global, mode, map, tier, tier-mode). Pair terms and other
+        brawlers are held fixed, so this is a little optimistic, but it scales the right way:
+        a brawler with 10 games on a map gets a wide error, one with 2,000 a narrow one."""
+        L = self.layout
+        B, nm, nmap, nt = L.n_brawlers, L.n_modes, L.n_maps, L.n_tiers
+        sw = np.ones(len(m)) if weights is None else np.asarray(weights, dtype=np.float64)
+        p = self.predict(m)
+        r = sw * p * (1 - p)  # Fisher information each appearance adds (sign squared = 1)
+        tier = m.tier_idx()
+        # Information per brawler, map and tier, summed over both teams' slots.
+        info = np.zeros((B, nmap, nt))
+        for t in range(2):
+            for s in range(3):
+                np.add.at(info, (m.teams[:, t, s], m.map_idx, tier), r)
+        mode_of_map = np.zeros(nmap, dtype=int)
+        for mp, md in zip(m.map_idx, m.mode_idx):
+            mode_of_map[mp] = md
+        # Local parameters: global | mode[nm] | map[nmap] | tier[nt] | tier_mode[nt * nm].
+        D = 1 + nm + nmap + nt + nt * nm
+        X = np.zeros((nmap, nt, D))  # indicator of the terms one appearance touches
+        for j in range(nmap):
+            k = mode_of_map[j]
+            for t in range(nt):
+                X[j, t, [0, 1 + k, 1 + nm + j, 1 + nm + nmap + t, 1 + nm + nmap + nt + t * nm + k]] = 1.0
+        lam = np.concatenate([[self.l2["global"]], np.full(nm, self.l2["mode"]), np.full(nmap, self.l2["map"]),
+                              np.full(nt, self.l2["tier"]), np.full(nt * nm, self.l2["tier_mode"])])
+        Xf = X.reshape(-1, D)
+        out = np.zeros((nt, B, nmap))
+        for b in range(B):
+            H = (Xf * info[b].reshape(-1)[:, None]).T @ Xf + np.diag(2 * lam)
+            var = np.einsum("id,de,ie->i", Xf, np.linalg.inv(H), Xf).reshape(nmap, nt)
+            out[:, b, :] = np.sqrt(var).T
+        return out

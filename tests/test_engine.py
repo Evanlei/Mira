@@ -181,5 +181,83 @@ class SearchTests(unittest.TestCase):
         self.assertNotIn(0, [b for b, _, gain in bans if gain > 0])
 
 
+class RankingTests(unittest.TestCase):
+    """Uncertainty penalty and pick-rate prior: they change which of our picks wins, never a win %."""
+
+    def model(self, kappa=0.0, gamma=0.0):
+        # Brawler 1 has a slightly higher estimate than 2, but few games (wide sd) and a tiny pick rate.
+        B = 8
+        base = [[-2.0] for _ in range(B)]
+        base[1][0] = -8.0
+        data = {
+            "brawlers": [{"id": i, "name": f"B{i}"} for i in range(B)],
+            "modes": ["m"], "maps": [{"mode": "m", "map": "x"}],
+            "win_model": {"global": [0.0, 0.32, 0.30] + [0.0] * (B - 3), "mode": [[0.0]] * B, "map": [[0.0]] * B,
+                          "synergy": [], "synergy_mode": [], "matchup": [], "matchup_mode": []},
+            "pick_model": {"alpha": 1.0, "beta": 1.0, "log_base": base, "ally_lift": [], "enemy_lift": []},
+            "ranking": {"kappa": kappa, "gamma": gamma,
+                        "strength_sd": [[[0.05]] + [[0.20]] + [[0.03]] * (B - 2)]},
+        }
+        return Model(data)
+
+    def top(self, m):
+        return Searcher(m, 0, set()).run((3, 4), (5, 6, 7), we_first=False).suggestions[0]
+
+    def test_plain_ranking_takes_the_higher_estimate(self):
+        self.assertEqual(self.top(self.model()).picks, (1,))
+
+    def test_uncertainty_penalty_prefers_the_well_measured_brawler(self):
+        self.assertEqual(self.top(self.model(kappa=1.0)).picks, (2,))
+
+    def test_pick_rate_prior_prefers_what_players_pick(self):
+        self.assertEqual(self.top(self.model(gamma=0.05)).picks, (2,))
+
+    def test_reported_win_is_the_plain_model(self):
+        m = self.model(kappa=1.0, gamma=0.05)
+        o = self.top(m)
+        self.assertAlmostEqual(o.win, m.win_prob((3, 4) + o.picks, (5, 6, 7), 0), places=12)
+        r = Searcher(m, 0, set()).run((3, 4), (5, 6, 7), we_first=False)
+        self.assertEqual(r.win, r.suggestions[0].win)  # the root value is the option we take
+
+    def test_old_files_without_ranking_rank_as_before(self):
+        m = self.model(kappa=1.0, gamma=0.05)
+        del m.data["ranking"]
+        self.assertEqual(self.top(Model(m.data)).picks, (1,))
+
+
+class StrengthSdTests(unittest.TestCase):
+    def test_fewer_games_means_wider_error(self):
+        m = synthetic(n=4000, seed=3, effects=False)
+        # Make brawler 7 rare on map 0: swap it out of most of its map-0 games.
+        rng = np.random.default_rng(0)
+        for i in np.flatnonzero(m.map_idx == 0):
+            if (m.teams[i] == 7).any() and rng.random() < 0.9:
+                free = [b for b in range(m.n_brawlers) if b not in m.teams[i]]
+                m.teams[i][m.teams[i] == 7] = free[0]
+        win = WinModel.fit(m)
+        sd = win.strength_sd(m)
+        self.assertEqual(sd.shape, (win.layout.n_tiers, m.n_brawlers, len(m.maps)))
+        others = np.delete(sd[1, :, 0], 7)
+        self.assertGreater(sd[1, 7, 0], others.max())
+        self.assertGreater(sd[1, 7, 0], sd[1, 7, 1])  # brawler 7 is still common on map 1
+        self.assertTrue(np.all(sd > 0))
+
+    def test_exported_and_tuned(self):
+        from mira.model import evaluate
+        m = synthetic(n=3000, seed=4)
+        win, pick = WinModel.fit(m), PickModel.fit(m)
+        sd = win.strength_sd(m)
+        games = np.array(export.game_counts(m)["brawler_map"])
+        rows = evaluate.ranking_report(win, pick.log_base_tier, sd, games, m, kappas=(0.0, 1.0), gammas=(0.0, 0.05))
+        self.assertEqual(len(rows), 4)
+        best = evaluate.choose_ranking(rows)
+        self.assertIn(best, rows)
+        data = export.to_dict(win, m, export.game_counts(m), extra={
+            "pick_model": export.pick_model_dict(pick), "ranking": export.ranking_dict(best.kappa, best.gamma, sd)})
+        e = Model(json.loads(json.dumps(data)))
+        self.assertEqual((e.kappa, e.gamma), (best.kappa, best.gamma))
+        self.assertAlmostEqual(e.sd_of(0, 0), sd[e.tier, 0, 0], places=3)
+
+
 if __name__ == "__main__":
     unittest.main()

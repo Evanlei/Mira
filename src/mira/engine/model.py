@@ -49,6 +49,14 @@ class Model:
                 self.enemy[i, j] = self.enemy[j, i] = v
         self.games = data.get("games", {})
 
+        # How the search ranks our own candidates (see adjust()). Older model.json files have no
+        # "ranking" block: kappa = gamma = 0, so they rank by the win model alone, as before.
+        r = data.get("ranking") or {}
+        self.kappa = r.get("kappa", 0.0)
+        self.gamma = r.get("gamma", 0.0) if p else 0.0
+        sd = r.get("strength_sd")  # [n_tiers][B][n_maps]
+        self.sd = sd[self.tier] if sd else None
+
     @classmethod
     def load(cls, path: str | Path, tier: int | None = None) -> "Model":
         return cls(json.loads(Path(path).read_text(encoding="utf-8")), tier)
@@ -119,6 +127,22 @@ class Model:
         """Change in our logit from adding b to our team."""
         return (self.strength(b, mp) + sum(self.synergy(b, a, mp) for a in ours)
                 + sum(self.matchup(b, e, mp) for e in theirs))
+
+    def sd_of(self, b: int, mp: int) -> float:
+        """Standard error of strength(b, mp): wide for brawlers with few games on the map."""
+        return self.sd[b][mp] if self.sd is not None else 0.0
+
+    def adjust(self, b: int, mp: int) -> float:
+        """Logit-scale bonus used only to rank and choose our picks, never in a reported win chance.
+
+        -kappa * sd: a pessimistic (lower-bound) reading of a noisy estimate, so the brawler with
+        the highest *estimate* doesn't win just because it has the fewest games (optimizer's curse).
+        +gamma * log pick rate: what Masters players actually pick on the map is evidence too; a
+        brawler almost nobody picks there needs a much bigger edge to be recommended."""
+        a = -self.kappa * self.sd_of(b, mp) if self.kappa else 0.0
+        if self.gamma:
+            a += self.gamma * self.log_base[b][mp]
+        return a
 
     # -- pick model ---------------------------------------------------------
 

@@ -91,6 +91,16 @@ def pick_model_dict(pm, threshold: float = 0.01) -> dict:
     }
 
 
+def ranking_dict(kappa: float, gamma: float, sd) -> dict:
+    """How the engines rank our own candidate picks (Model.adjust in src/mira/engine/model.py)."""
+    return {
+        "doc": "rank our candidates by gain - kappa * strength_sd[tier][b][map] + gamma * log_base[b][map] "
+               "(the pick model's tier-aware log pick rate); reported win chances never include this.",
+        "kappa": float(kappa), "gamma": float(gamma),
+        "strength_sd": [[[round(float(x), 3) for x in row] for row in tier] for tier in sd],
+    }
+
+
 def game_counts(m: Matches, rank_factor: float = DEFAULT_RANK_FACTOR) -> dict:
     """Sample sizes the UI uses for confidence badges: games per brawler overall and per map,
     in all-Masters equivalents (a lower lobby counts as its rank weight)."""

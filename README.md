@@ -218,6 +218,15 @@ prints the top options for the current turn and the most likely line, with alter
 step. The engine reads only `model.json` and uses the standard library, so it is the reference for
 the website's port.
 
+Our candidates are ranked, and the best one chosen, by `gain - kappa * sd + gamma * log pick rate`
+(`Model.adjust`). `sd` is each brawler's strength error on the map (a Laplace approximation from
+the fit, wide for brawlers with few games there), so the brawler with the highest *estimate* can't
+top the list on noise alone; the pick-rate term counts what Masters players actually pick. `train`
+tunes both on the newest 20% of matches: the held-out picks closest to our top choice should win as
+often as without the adjustment (within one standard error), and among the settings that do, it
+takes the one leaning least on few-game brawlers. `--kappa` / `--gamma` fix them instead. Displayed
+win chances are always the plain win model's.
+
 **Caveat:** the "expected win chance" is optimistic. The search keeps the best of several noisy
 estimates and assumes the opponent picks like a typical player, not a counter-picker. Trust the
 ranking more than the absolute %.
