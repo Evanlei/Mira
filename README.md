@@ -69,6 +69,16 @@ launchd: it starts at login, restarts if it exits (5 minutes after a failure suc
 from a new IP) and logs to `~/Library/Logs/mira-crawl.log`. `status`, `log` and `uninstall`
 do what they say. The Mac has to be awake and on a whitelisted IP.
 
+### Daily retrain and deploy
+
+`scripts/retrain-service.sh install` runs `scripts/retrain.sh` every day at 04:30 (on wake if the
+Mac was asleep): it snapshots the database with `VACUUM INTO`, trains with the settings `evaluate`
+chose, refuses a model trained on fewer matches than the live one, and pushes only
+`web/public/model.json` and the engine parity fixtures to main, from a separate worktree
+(`.retrain-worktree`) so your own checkout is never touched. Vercel redeploys on the push.
+`scripts/retrain.sh --dry-run` trains and checks without pushing; `status`, `run` and `log` do what
+they say. Log: `~/Library/Logs/mira-retrain.log`.
+
 ## Seeding and the rank gate
 
 The API has no Ranked-mode leaderboard (`/rankings/{country}/players` is trophies only), so you
