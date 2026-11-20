@@ -1,52 +1,31 @@
 @import "tailwindcss";
 
-/* Mira follows jmo's portfolio: Figtree, the Tailwind gray/blue palette, a faint dot grid,
-   hairline borders, one calm column. Team colors are Tailwind blue-600 (you) and red-500 (them).
-   Shadow, outline and motion values follow jmo-workflow:better-ui. */
+/* Mira's draft screen: a stone ground, white cards lifted by soft shadows, black for the
+   active choice (your team, the best line, the selected option) and grey for the enemy.
+   Colour comes from the brawler and map art, not the chrome. Shadow, outline and motion
+   values follow jmo-workflow:better-ui. */
 :root {
-  --background: #fafafa;
-  --foreground: #1a1a1a;
+  --background: #e9e8e3;
+  --foreground: #141414;
   --surface: #ffffff;
-  --subtle: #f4f4f5; /* zinc-100 */
-  --accent: #2563eb; /* blue-600 */
-  --muted: #6b7280; /* gray-500 */
-  --faint: #9ca3af; /* gray-400 */
-  --border-color: #e5e7eb; /* gray-200 */
-  --us: #2563eb; /* blue-600 */
-  --them: #ef4444; /* red-500 */
-  --warn: #d97706; /* amber-600 */
-  --dot: rgba(0, 0, 0, 0.15);
+  --subtle: #f3f2ee;
+  --accent: #141414;
+  --muted: #5c5c63;
+  --faint: #6e6e75;
+  --border-color: #d6d6d1;
+  --us: #141414;
+  --them: #8e8e96;
+  --warn: #b45309; /* amber-700 */
+  --bar: #1c1c1f;
   --image-outline: oklch(0 0 0 / 0.1);
   --shadow-border:
-    0px 0px 0px 1px oklch(0 0 0 / 0.06),
-    0px 1px 2px -1px oklch(0 0 0 / 0.06),
-    0px 2px 4px 0px oklch(0 0 0 / 0.04);
+    0 1px 2px rgba(20, 20, 20, 0.06),
+    0 6px 16px -4px rgba(20, 20, 20, 0.08);
   --shadow-border-hover:
-    0px 0px 0px 1px oklch(0 0 0 / 0.08),
-    0px 1px 2px -1px oklch(0 0 0 / 0.08),
-    0px 2px 4px 0px oklch(0 0 0 / 0.06);
+    0 1px 2px rgba(20, 20, 20, 0.08),
+    0 8px 20px -4px rgba(20, 20, 20, 0.12);
+  --shadow-lift: 0 10px 24px -8px rgba(20, 20, 20, 0.45);
   color-scheme: light;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-    --surface: #111111;
-    --subtle: #18181b; /* zinc-900 */
-    --accent: #60a5fa; /* blue-400 */
-    --muted: #9ca3af; /* gray-400 */
-    --faint: #6b7280; /* gray-500 */
-    --border-color: #27272a; /* zinc-800 */
-    --us: #60a5fa; /* blue-400 */
-    --them: #f87171; /* red-400 */
-    --warn: #fbbf24; /* amber-400 */
-    --dot: rgba(255, 255, 255, 0.1);
-    --image-outline: oklch(1 0 0 / 0.1);
-    --shadow-border: 0 0 0 1px oklch(1 0 0 / 0.08);
-    --shadow-border-hover: 0 0 0 1px oklch(1 0 0 / 0.13);
-    color-scheme: dark;
-  }
 }
 
 @theme inline {
@@ -61,13 +40,12 @@
   --color-us: var(--us);
   --color-them: var(--them);
   --color-warn: var(--warn);
+  --color-bar: var(--bar);
   --font-sans: var(--font-figtree);
 }
 
 body {
   background-color: var(--background);
-  background-image: radial-gradient(circle, var(--dot) 1px, transparent 1px);
-  background-size: 20px 20px;
   color: var(--foreground);
   font-family: var(--font-figtree), system-ui, sans-serif;
   -webkit-tap-highlight-color: transparent;
@@ -123,6 +101,26 @@ body {
     outline-offset: -1px;
   }
 
+  /* Your turn: a dark ring that slowly breathes around the open slots. Opacity only, so nothing
+     moves; under reduced motion it stays lit. The "Your pick" label carries the same news. */
+  .turn-glow {
+    position: relative;
+  }
+  .turn-glow::after {
+    content: "";
+    position: absolute;
+    inset: -2px;
+    border-radius: inherit;
+    pointer-events: none;
+    box-shadow: 0 0 0 2px var(--foreground), 0 0 0 7px rgba(20, 20, 20, 0.12);
+    opacity: 0.85;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .turn-glow::after {
+      animation: turn-breathe 2.4s cubic-bezier(0.77, 0, 0.175, 1) infinite alternate both;
+    }
+  }
+
   /* Fallback token when a brawler has no portrait yet. */
   .avatar {
     background: oklch(0.62 0.13 var(--h) / 0.16);
@@ -174,6 +172,11 @@ body {
     transition-duration: 150ms;
     transition-timing-function: ease-out;
   }
+}
+
+@keyframes turn-breathe {
+  from { opacity: 0.35; }
+  to { opacity: 1; }
 }
 
 .tabular {

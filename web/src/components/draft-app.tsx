@@ -1,19 +1,20 @@
 "use client";
 
-import { RotateCcw, Undo2 } from "lucide-react";
+import { ChevronDown, RotateCcw, Undo2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Model, type ModelJson } from "@/engine/model";
-import { Searcher, suggestBans, type BanSuggestion, type Option, type Result, type Step } from "@/engine/search";
-import { EMPTY, apply, applyAll, banned, pickSlots, target, unavailableFor, type Draft } from "@/lib/draft";
+import { Searcher, suggestBans, type BanSuggestion, type Result } from "@/engine/search";
+import { mapImage, modeInfo } from "@/lib/art";
+import { EMPTY, apply, applyAll, banned, target, unavailableFor, type Draft } from "@/lib/draft";
 import { gainPts, pct } from "@/lib/names";
 
-import { Board, DraftScreen } from "./board";
+import { Teams } from "./board";
 import { Composer } from "./composer";
-import { Line, Section, Summary } from "./panels";
+import { Summary } from "./panels";
 import { MapPanel } from "./map-panel";
 import { BrawlerSheet, MapSheet, type Ranked } from "./sheets";
-import { Cluster, SlashTabs, cn } from "./ui";
+import { Cluster, ModeIcon, cn } from "./ui";
 
 export function DraftApp() {
   const [model, setModel] = useState<Model | null>(null);
@@ -45,7 +46,6 @@ function Drafter({ model }: { model: Model }) {
   const [history, setHistory] = useState<Draft[]>([]);
   const [mapOpen, setMapOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [preview, setPreview] = useState<{ step: number; option: Option } | null>(null);
 
   const commit = useCallback((next: Draft) => {
     setDraft((cur) => {
@@ -53,7 +53,6 @@ function Drafter({ model }: { model: Model }) {
       setHistory((h) => [...h, cur]);
       return next;
     });
-    setPreview(null);
   }, []);
   const undo = () => {
     setHistory((h) => {
@@ -61,7 +60,6 @@ function Drafter({ model }: { model: Model }) {
       setDraft(h[h.length - 1]);
       return h.slice(0, -1);
     });
-    setPreview(null);
   };
   const reset = () => commit({ ...EMPTY, map: draft.map, weFirst: draft.weFirst });
 
@@ -80,18 +78,6 @@ function Drafter({ model }: { model: Model }) {
     () => (searcher ? searcher.run(draft.ours, draft.theirs, draft.weFirst) : null),
     [searcher, draft.ours, draft.theirs, draft.weFirst],
   );
-
-  // Previewed line: follow the main line to the chosen step, swap in the alternative, search on from there.
-  const line: Step[] | null = useMemo(() => {
-    if (!result || !preview || mp === null) return result?.line ?? null;
-    let d = draft;
-    for (let i = 0; i < preview.step; i++) d = applyAll(d, result.line[i].chosen.picks);
-    d = applyAll(d, preview.option.picks);
-    const rest = new Searcher(model, mp, bannedSet).run(d.ours, d.theirs, d.weFirst);
-    const step = result.line[preview.step];
-    const others = [step.chosen, ...step.alternatives].filter((o) => o !== preview.option);
-    return [...result.line.slice(0, preview.step), { side: step.side, chosen: preview.option, alternatives: others }, ...rest.line];
-  }, [result, preview, draft, model, mp, bannedSet]);
 
   // Ban suggestions: ~16 searches, so compute after paint.
   // Results are tagged with the draft they belong to; a stale tag reads as "loading".
@@ -125,122 +111,128 @@ function Drafter({ model }: { model: Model }) {
   const started = draft.ours.length > 0 || draft.theirs.length > 0 || bannedSet.size > 0;
   const games = model.data.n_matches;
   const isUnavailable = (b: number) => unavailableFor(draft, b, t);
-  const turnLabel =
-    t.kind === "ban" ? (t.side === "us" ? "Your ban" : "Their ban") : t.kind === "pick" ? (t.side === "us" ? "Your pick" : "Their pick") : "Draft complete";
   const featured = useMemo(() => {
     // Three most-played brawlers, for the inline cluster in the intro.
     const counts = model.data.games?.brawler ?? [];
     return [...counts.keys()].sort((a, b) => counts[b] - counts[a]).slice(0, 3);
   }, [model]);
 
+  const m = mp === null ? null : model.maps[mp];
+  const img = m ? mapImage(m.mode, m.map) : null;
+  const setFirst = (weFirst: boolean) => commit({ ...EMPTY, map: draft.map, weFirst });
+
   return (
-    <div className="mx-auto w-full max-w-2xl px-5 pt-12 pb-[max(32px,env(safe-area-inset-bottom))] sm:px-6 sm:pt-16 lg:max-w-7xl lg:px-10 lg:pt-10">
-      <header className="enter space-y-4 sm:space-y-5 lg:space-y-3">
-        <h1 className="text-3xl leading-snug tracking-tight sm:text-4xl">
-          <strong>Mira</strong> <span className="text-muted">(draft coach)</span>
-        </h1>
-        <p className="max-w-3xl text-[17px] leading-relaxed text-foreground/90 sm:text-xl lg:text-lg">
-          Pick a map and I’ll suggest your best Brawl Stars Ranked picks and bans, learned from{" "}
-          <Cluster model={model} picks={featured} size={28} /> <strong className="tabular">{games.toLocaleString()} Masters games</strong>.
-        </p>
-        <hr className="border-border" />
+    <div className="flex min-h-full flex-1 flex-col">
+      <header className="bg-bar text-zinc-100">
+        <div className="mx-auto flex h-16 w-full max-w-[1440px] items-center gap-3 px-5 lg:px-12">
+          <span className="me-2 text-xl font-extrabold tracking-tight">Mira</span>
+          {m ? (
+            <>
+              <button
+                onClick={() => setMapOpen(true)}
+                aria-label={`Map: ${m.map}. Change map`}
+                className="pressable flex h-10 min-w-0 items-center gap-2.5 rounded-xl bg-white/[0.08] ps-1.5 pe-3 text-sm font-semibold hover:bg-white/[0.14]"
+              >
+                {img && (
+                  // eslint-disable-next-line @next/next/no-img-element -- static map art
+                  <img src={img} alt="" className="size-7 shrink-0 rounded-lg object-cover" />
+                )}
+                <span className="truncate">{m.map}</span>
+                <ChevronDown size={14} strokeWidth={2} absoluteStrokeWidth className="shrink-0 text-zinc-400" />
+              </button>
+              <span className="hidden h-10 items-center gap-2 rounded-xl bg-white/[0.08] px-3 text-sm font-semibold sm:flex">
+                <ModeIcon mode={m.mode} size={16} />
+                {modeInfo(m.mode).name}
+              </span>
+            </>
+          ) : (
+            <span className="hidden text-sm text-zinc-400 sm:inline">Draft coach for Brawl Stars Ranked</span>
+          )}
+        </div>
       </header>
 
-      <main className="mt-8 space-y-4 lg:mt-6">
-        <div className={cn("enter enter-1 space-y-3", mp !== null && "lg:hidden")}>
-          <MapPanel model={model} mp={mp} onChange={() => setMapOpen(true)} />
-          <SlashTabs
-            label="Who picks first"
-            value={draft.weFirst ? "us" : "them"}
-            onChange={(v) => commit({ ...EMPTY, map: draft.map, weFirst: v === "us" })}
-            options={[
-              { value: "us", label: "We pick first" },
-              { value: "them", label: "They pick first" },
-            ]}
-            disabled={started}
-            hint={started ? "reset the draft to change" : undefined}
-          />
-        </div>
-
-        {mp !== null && (
-          <>
-            <Section
-              className="enter enter-2"
-              title={turnLabel}
-              toolbar={
-                <SlashTabs
-                  label="Who picks first"
-                  value={draft.weFirst ? "us" : "them"}
-                  onChange={(v) => commit({ ...EMPTY, map: draft.map, weFirst: v === "us" })}
-                  options={[
-                    { value: "us", label: "We pick first" },
-                    { value: "them", label: "They pick first" },
-                  ]}
-                  disabled={started}
-                />
-              }
-              aside={
-                <span className="flex gap-0.5">
-                  <IconButton label="Undo" onClick={undo} disabled={!history.length}>
-                    <Undo2 size={16} strokeWidth={1.5} absoluteStrokeWidth />
-                  </IconButton>
-                  <IconButton label="Reset draft" onClick={reset} disabled={!started && !draft.skipBans}>
-                    <RotateCcw size={16} strokeWidth={1.5} absoluteStrokeWidth />
-                  </IconButton>
-                </span>
-              }
-            >
-              <Progress draft={draft} />
-              <div className="lg:hidden">
-                <Board model={model} draft={draft} target={t} />
-              </div>
-              <div className="hidden lg:block">
-                <DraftScreen model={model} draft={draft} target={t} mp={mp} onChangeMap={() => setMapOpen(true)} />
-              </div>
-            </Section>
-
-            <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
-            {t.kind !== "done" ? (
-              <Composer
-                model={model}
-                draft={draft}
-                target={t}
-                mp={mp}
-                searcher={searcher}
-                result={result}
-                bans={bans}
-                isUnavailable={isUnavailable}
-                onPick={(b) => commit(apply(draft, b))}
-                onApply={(picks) => commit(applyAll(draft, picks))}
-                onSkipBans={() => commit({ ...draft, skipBans: true })}
-                onBrowse={() => setPickerOpen(true)}
-              />
-            ) : (
-              result && <Summary model={model} ours={draft.ours} theirs={draft.theirs} mp={mp} win={result.win} />
-            )}
-
-            {line && result && result.side !== "done" && (
-              <Line
-                model={model}
-                line={line}
-                previewing={preview !== null}
-                onPreview={(step, option) => (step === 0 ? commit(applyAll(draft, option.picks)) : setPreview({ step, option }))}
-                onReset={() => setPreview(null)}
-              />
-            )}
+      <div className="mx-auto w-full max-w-[1440px] flex-1 px-5 pt-6 pb-[max(32px,env(safe-area-inset-bottom))] lg:px-12 lg:pt-8">
+        {m === null || mp === null ? (
+          <main className="enter mx-auto max-w-2xl space-y-6 pt-6">
+            <div className="space-y-3">
+              <h1 className="text-3xl font-extrabold tracking-tight sm:text-4xl">Pick a map to start</h1>
+              <p className="text-[17px] leading-relaxed text-muted">
+                I’ll suggest your best Brawl Stars Ranked picks and bans, learned from{" "}
+                <Cluster model={model} picks={featured} size={28} /> <strong className="tabular text-foreground">{games.toLocaleString()} Masters games</strong>.
+              </p>
             </div>
-          </>
-        )}
-      </main>
+            <MapPanel model={model} mp={mp} onChange={() => setMapOpen(true)} />
+            <FirstPick weFirst={draft.weFirst} onChange={setFirst} disabled={started} />
+          </main>
+        ) : (
+          <main className="grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start lg:gap-12">
+            <figure className="enter hidden flex-col gap-3 lg:flex">
+              {img && (
+                // eslint-disable-next-line @next/next/no-img-element -- static map art
+                <img src={img} alt={`${m.map} layout`} className="art aspect-[690/1050] w-full rounded-3xl object-cover" />
+              )}
+              <figcaption className="flex items-center gap-2.5 px-1">
+                <ModeIcon mode={m.mode} size={18} />
+                <span className="flex flex-1 items-baseline gap-2">
+                  <span className="text-[15px] font-bold">{m.map}</span>
+                  <span className="text-[13px] text-muted">{modeInfo(m.mode).name}</span>
+                </span>
+                <button onClick={() => setMapOpen(true)} className="pressable card h-8 rounded-full px-3 text-[13px] font-semibold hover:bg-subtle">
+                  Change
+                </button>
+              </figcaption>
+            </figure>
 
-      <footer className="mt-12 space-y-1 border-t border-border pt-6 text-xs leading-relaxed text-muted">
-        <p>
-          Trained on all-Masters Ranked matches up to {model.data.data_window[1].slice(0, 10)}
-          {model.data.patches?.length ? <>, latest patch {model.data.patches.at(-1)!.date}</> : null}. Win chances assume your
-          best play and typical Masters picks from them, so they run high: trust the order more than the number.
-        </p>
-        <p>Not affiliated with Supercell. Game art © Supercell, via Brawlify.</p>
-      </footer>
+            <div className="enter enter-1 @container flex min-w-0 flex-col gap-8 lg:gap-10">
+              <div className="lg:hidden">
+                <MapPanel model={model} mp={mp} onChange={() => setMapOpen(true)} />
+              </div>
+
+              <div role="toolbar" aria-label="Draft controls" className="flex flex-wrap items-center gap-2">
+                <FirstPick weFirst={draft.weFirst} onChange={setFirst} disabled={started} />
+                <span className="ms-auto flex gap-2">
+                  <ToolButton label="Undo" onClick={undo} disabled={!history.length}>
+                    <Undo2 size={16} strokeWidth={1.75} absoluteStrokeWidth />
+                  </ToolButton>
+                  <ToolButton label="Reset" onClick={reset} disabled={!started && !draft.skipBans}>
+                    <RotateCcw size={16} strokeWidth={1.75} absoluteStrokeWidth />
+                  </ToolButton>
+                </span>
+              </div>
+
+              <Teams model={model} draft={draft} target={t} />
+
+              {t.kind !== "done" ? (
+                <Composer
+                  model={model}
+                  draft={draft}
+                  target={t}
+                  mp={mp}
+                  searcher={searcher}
+                  result={result}
+                  bans={bans}
+                  isUnavailable={isUnavailable}
+                  onPick={(b) => commit(apply(draft, b))}
+                  onApply={(picks) => commit(applyAll(draft, picks))}
+                  onSkipBans={() => commit({ ...draft, skipBans: true })}
+                  onBrowse={() => setPickerOpen(true)}
+                />
+              ) : (
+                result && <Summary model={model} ours={draft.ours} theirs={draft.theirs} mp={mp} win={result.win} />
+              )}
+            </div>
+          </main>
+        )}
+
+        <footer className="mt-12 space-y-1 border-t border-border pt-6 text-xs leading-relaxed text-muted">
+          <p>
+            Trained on all-Masters Ranked matches up to {model.data.data_window[1].slice(0, 10)}
+            {model.data.patches?.length ? <>, latest patch {model.data.patches.at(-1)!.date}</> : null}. Win chances assume your
+            best play and typical Masters picks from them, so they run high: trust the order more than the number.
+          </p>
+          <p>Not affiliated with Supercell. Game art © Supercell, via Brawlify.</p>
+        </footer>
+      </div>
 
       <MapSheet model={model} open={mapOpen} onClose={() => setMapOpen(false)} current={mp} onPick={(i) => commit({ ...EMPTY, map: i, weFirst: draft.weFirst })} />
       <BrawlerSheet
@@ -257,40 +249,50 @@ function Drafter({ model }: { model: Model }) {
   );
 }
 
-/** Where we are in the draft: bans, then the six picks in order, colored by team. */
-function Progress({ draft }: { draft: Draft }) {
-  const slots = pickSlots(draft.weFirst);
-  const bansDone = draft.skipBans || (draft.bansUs.length === 3 && draft.bansThem.length === 3);
-  const picked = { us: draft.ours.length, them: draft.theirs.length };
-  const next = slots.find((s) => s.index >= picked[s.side]);
+/** Who picks first: a two-way switch. Locked once the draft has started (reset to change). */
+function FirstPick({ weFirst, onChange, disabled }: { weFirst: boolean; onChange: (weFirst: boolean) => void; disabled?: boolean }) {
+  const opt = (value: boolean, label: string) => {
+    const on = weFirst === value;
+    return (
+      <button
+        role="radio"
+        aria-checked={on}
+        onClick={() => onChange(value)}
+        disabled={disabled && !on}
+        className={cn(
+          "pressable h-8 rounded-lg px-3 text-[13px] disabled:opacity-40",
+          on ? "bg-foreground font-bold text-white" : "font-semibold text-foreground/80 enabled:hover:bg-subtle",
+        )}
+      >
+        {label}
+      </button>
+    );
+  };
   return (
-    <div className="mb-5 flex items-center gap-1" aria-hidden>
-      <span className={cn("h-1 flex-[1.5] rounded-full", bansDone ? "bg-foreground/25" : "bg-accent")} />
-      <span className="w-1" />
-      {slots.map((s) => {
-        const done = s.index < picked[s.side];
-        const isNext = bansDone && next && (s === next || ((next.order === 2 || next.order === 4) && s.order === next.order + 1 && s.side === next.side));
-        return (
-          <span
-            key={s.order}
-            className={cn("h-1 flex-1 rounded-full", done ? (s.side === "us" ? "bg-us" : "bg-them") : isNext ? "bg-accent/50" : "bg-foreground/10")}
-          />
-        );
-      })}
+    <div
+      role="radiogroup"
+      aria-label="Who picks first"
+      title={disabled ? "Reset the draft to change" : undefined}
+      className="card flex h-10 items-center gap-0.5 rounded-xl p-1"
+    >
+      <span className="ps-1.5 pe-2 text-[13px] text-muted">First pick</span>
+      {opt(true, "Us")}
+      {opt(false, "Them")}
     </div>
   );
 }
 
-function IconButton({ label, onClick, disabled, children }: { label: string; onClick: () => void; disabled?: boolean; children: React.ReactNode }) {
+function ToolButton({ label, onClick, disabled, children }: { label: string; onClick: () => void; disabled?: boolean; children: React.ReactNode }) {
   return (
     <button
-      aria-label={label}
-      title={label}
       onClick={onClick}
       disabled={disabled}
-      className="pressable grid size-9 place-items-center rounded-full text-muted hover:text-foreground disabled:opacity-30"
+      aria-label={label}
+      title={label}
+      className="pressable card flex h-10 items-center gap-2 rounded-xl px-3 text-[13px] font-semibold text-foreground/80 enabled:hover:bg-subtle disabled:opacity-40 sm:pe-3.5"
     >
       {children}
+      <span className="hidden sm:inline">{label}</span>
     </button>
   );
 }

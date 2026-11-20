@@ -1,21 +1,22 @@
 "use client";
 
 import { LayoutGrid, Search } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { Model } from "@/engine/model";
 import { turnsRemaining, type BanSuggestion, type Result, type Searcher } from "@/engine/search";
-import type { Draft, Target } from "@/lib/draft";
+import { applyAll, type Draft, type Target } from "@/lib/draft";
 import { displayName, gainPts, pct, search } from "@/lib/names";
 
 import { DataChips } from "./panels";
 import { Portrait, cn } from "./ui";
 
-type Row = { key: string; picks: number[]; value: string; sub?: React.ReactNode; off?: string; best?: boolean };
+type Row = { key: string; picks: number[]; value: string; sub?: React.ReactNode; off?: string; best?: boolean; reply?: number[] };
 
 /**
  * The one place to act: says whose turn it is, takes a typed brawler (Enter adds it and keeps focus
- * for the next step), and lists the engine's suggestions when the box is empty.
+ * for the next step), and lists the engine's best lines when the box is empty. On your picks each
+ * line shows the enemy's likely reply, so you see the next move before you commit.
  */
 export function Composer({
   model,
@@ -62,12 +63,24 @@ export function Composer({
     return () => document.removeEventListener("keydown", onKey);
   }, []);
 
+  // The enemy's most likely answer to each suggested line (memoized searches, so cheap).
+  const replies = useMemo(() => {
+    const out = new Map<string, number[]>();
+    if (!searcher || !result || t.kind !== "pick" || t.side !== "us") return out;
+    for (const o of result.suggestions.slice(0, 5)) {
+      const d = applyAll(draft, o.picks);
+      const step = searcher.run(d.ours, d.theirs, d.weFirst, 0).line[0];
+      out.set(o.picks.join("-"), step && step.side === "them" ? step.chosen.picks : []);
+    }
+    return out;
+  }, [searcher, result, draft, t]);
+
   if (t.kind === "done") return null;
   const ours = t.side === "us";
   const title =
     t.kind === "ban"
-      ? ours ? "Suggested bans" : "Their ban"
-      : ours ? (t.size === 2 ? "Your best two picks" : "Your best pick") : `Their likely pick${t.size === 2 ? "s" : ""}`;
+      ? ours ? "Your ban" : "Their ban"
+      : ours ? "Your turn: best lines" : `Their pick${t.size === 2 ? "s" : ""}: most likely`;
 
   const scoreOf = (b: number): string => {
     if (t.kind === "ban") {
@@ -82,7 +95,7 @@ export function Composer({
 
   const rows: Row[] = q
     ? matches(model, q, isUnavailable, draft).map((r) => ({ ...r, value: r.off ? "" : scoreOf(r.picks[0]) }))
-    : suggestionRows(model, t, result, bans, mp);
+    : suggestionRows(model, t, result, bans, mp, replies);
   const live = rows.filter((r) => !r.off);
   const active = live.length ? live[((cursor % live.length) + live.length) % live.length] : null;
   const choose = (r: Row) => {
@@ -94,62 +107,65 @@ export function Composer({
   };
 
   return (
-    <section className="card rounded-[22px] p-4" aria-label={title}>
-      <div className="mb-3 flex items-baseline justify-between gap-3">
-        <h2 className="text-base font-semibold tracking-tight">{title}</h2>
+    <section className="flex flex-col gap-3" aria-label={title}>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
+        <h2 className="text-xl font-bold tracking-tight">{title}</h2>
         {t.kind === "ban" ? (
-          <button onClick={onSkipBans} className="pressable text-sm text-muted hover:text-foreground">
+          <button onClick={onSkipBans} className="pressable text-[13px] text-muted hover:text-foreground">
             skip bans
           </button>
         ) : (
-          <span className="text-sm text-muted">{ours ? "win chance" : "tap what they picked"}</span>
+          <span className="text-[13px] text-muted">{ours ? "click one to play it" : "tap what they picked"}</span>
         )}
-      </div>
 
-      <label className="flex h-11 items-center gap-2.5 rounded-[14px] bg-subtle px-3.5 ring-accent focus-within:ring-2">
-        <Search size={17} strokeWidth={1.5} absoluteStrokeWidth className="shrink-0 text-faint" />
-        <input
-          ref={input}
-          value={q}
-          onChange={(e) => {
-            setQ(e.target.value);
-            setCursor(0);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") setQ("");
-            if (e.key === "Enter" && active) {
-              e.preventDefault();
-              choose(active);
-            }
-            if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-              e.preventDefault();
-              setCursor((c) => c + (e.key === "ArrowDown" ? 1 : -1));
-            }
-          }}
-          placeholder={t.kind === "ban" ? (ours ? "Type a brawler to ban" : "Type their ban") : ours ? "Type any brawler" : "Type what they picked"}
-          aria-label="Type a brawler"
-          autoComplete="off"
-          autoCorrect="off"
-          spellCheck={false}
-          enterKeyHint="done"
-          className="h-full min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-faint focus-visible:outline-none"
-          data-composer
-        />
-        <kbd className="hidden rounded border border-border px-1.5 text-xs text-faint [@media(pointer:fine)]:inline">/</kbd>
-      </label>
+        <label className="card flex h-10 w-full items-center gap-2 rounded-xl px-3 ring-foreground focus-within:ring-2 sm:ms-auto sm:w-[280px]">
+          <Search size={15} strokeWidth={1.75} absoluteStrokeWidth className="shrink-0 text-muted" />
+          <input
+            ref={input}
+            value={q}
+            onChange={(e) => {
+              setQ(e.target.value);
+              setCursor(0);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setQ("");
+              if (e.key === "Enter" && active) {
+                e.preventDefault();
+                choose(active);
+              }
+              if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                e.preventDefault();
+                setCursor((c) => c + (e.key === "ArrowDown" ? 1 : -1));
+              }
+            }}
+            placeholder={t.kind === "ban" ? (ours ? "Type a brawler to ban" : "Type their ban") : ours ? "Or type any brawler" : "Type what they picked"}
+            aria-label="Type a brawler"
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
+            enterKeyHint="done"
+            className="h-full min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-faint focus-visible:outline-none"
+            data-composer
+          />
+          <kbd className="hidden rounded border border-border px-1.5 text-xs text-muted [@media(pointer:fine)]:inline">/</kbd>
+        </label>
+      </div>
 
       <Results
         model={model}
         q={q}
         rows={rows}
         active={active}
+        withReply={!q && t.kind === "pick" && ours}
+        replyRing={ours ? "var(--them)" : "var(--us)"}
+        pickRing={t.kind === "pick" && !q ? (ours ? "var(--us)" : "var(--them)") : null}
         onHover={(r) => setCursor(live.indexOf(r))}
-        valueLabel={q ? (t.kind === "ban" ? "win % gained" : ours ? "win chance" : "you’d be at") : t.kind === "ban" ? "win % gained" : ""}
+        valueLabel={q ? (t.kind === "ban" ? "win % gained" : ours ? "win chance" : "you’d be at") : t.kind === "ban" ? "win % gained" : ours ? "Win" : "likely"}
         onChoose={choose}
         empty={q ? `No brawler matches “${q}”.` : t.kind === "ban" && !bans ? "Working out the best bans…" : ""}
       />
 
-      <button onClick={onBrowse} className="pressable mt-1 inline-flex h-9 items-center gap-1.5 text-sm text-muted hover:text-foreground">
+      <button onClick={onBrowse} className="pressable inline-flex h-9 items-center gap-1.5 self-start text-sm text-muted hover:text-foreground">
         <LayoutGrid size={15} strokeWidth={1.5} absoluteStrokeWidth />
         Browse all brawlers
       </button>
@@ -177,7 +193,7 @@ function matches(model: Model, q: string, isUnavailable: (b: number) => boolean,
     }));
 }
 
-function suggestionRows(model: Model, t: Target, result: Result | null, bans: BanSuggestion[] | null, mp: number): Row[] {
+function suggestionRows(model: Model, t: Target, result: Result | null, bans: BanSuggestion[] | null, mp: number, replies: Map<string, number[]>): Row[] {
   if (t.kind === "ban") return (bans ?? []).map((x, i) => ({ key: String(x.brawler), picks: [x.brawler], value: gainPts(x.gain), best: i === 0 }));
   if (!result || t.kind !== "pick") return [];
   const ours = t.side === "us";
@@ -187,14 +203,21 @@ function suggestionRows(model: Model, t: Target, result: Result | null, bans: Ba
     value: ours ? pct(o.win) : pct(o.prob ?? 0),
     sub: ours ? <DataChips model={model} picks={o.picks} mp={mp} /> : <span className="tabular">you’d be at {pct(o.win)}</span>,
     best: i === 0,
+    reply: replies.get(o.picks.join("-")),
   }));
 }
+
+const GRID_REPLY = "grid-cols-[20px_auto_minmax(0,1fr)_52px] @xl:grid-cols-[28px_auto_minmax(0,1fr)_150px_60px] @3xl:grid-cols-[36px_116px_minmax(0,1fr)_220px_72px]";
+const GRID_PLAIN = "grid-cols-[20px_auto_minmax(0,1fr)_64px] @xl:grid-cols-[28px_auto_minmax(0,1fr)_96px] @3xl:grid-cols-[36px_116px_minmax(0,1fr)_96px]";
 
 function Results({
   model,
   q,
   rows,
   active,
+  withReply,
+  pickRing,
+  replyRing,
   onHover,
   valueLabel,
   onChoose,
@@ -204,25 +227,33 @@ function Results({
   q: string;
   rows: Row[];
   active: Row | null;
+  withReply: boolean;
+  pickRing: string | null;
+  replyRing: string;
   onHover: (r: Row) => void;
   valueLabel: string;
   onChoose: (r: Row) => void;
   empty: string;
 }) {
   const label = q ? "Matches" : "Suggested";
-  if (!rows.length) return empty ? <p className="px-1 pt-4 pb-2 text-sm text-muted">{empty}</p> : null;
+  if (!rows.length) return empty ? <p className="px-1 pt-2 pb-2 text-sm text-muted">{empty}</p> : null;
+  const grid = withReply ? GRID_REPLY : GRID_PLAIN;
 
   return (
-    <div className="mt-3">
-      {(q || valueLabel) && (
-        <div className="mb-1 flex justify-between px-1 text-xs text-faint">
-          <span>{q ? label : ""}</span>
-          <span>{valueLabel}</span>
-        </div>
-      )}
-      <ul role="listbox" aria-label={label} className="-mx-2 flex flex-col">
-        {rows.map((r) => {
+    <div className="flex flex-col gap-2">
+      <div aria-hidden className={cn("grid items-center gap-x-3 px-3 text-xs text-muted sm:px-4", grid)}>
+        <span />
+        <span>{q ? label : withReply ? "You" : ""}</span>
+        <span />
+        {withReply && <span className="hidden @xl:block">Them · likely reply</span>}
+        <span className="text-end">{valueLabel}</span>
+      </div>
+      <ul role="listbox" aria-label={label} className="flex flex-col gap-2">
+        {rows.map((r, i) => {
           const isActive = r === active;
+          const best = r.best && !q;
+          const rowBg = best ? "var(--foreground)" : "var(--surface)";
+          const ring = (color: string | null) => (color ? { boxShadow: `0 0 0 2px ${rowBg}, 0 0 0 4px ${best && color === "var(--us)" ? "var(--surface)" : color}` } : undefined);
           return (
             <li key={r.key} role="option" aria-selected={isActive} aria-disabled={!!r.off}>
               <button
@@ -230,21 +261,49 @@ function Results({
                 onClick={() => onChoose(r)}
                 onMouseEnter={() => !r.off && onHover(r)}
                 className={cn(
-                  "pressable flex w-full items-center gap-3 rounded-[14px] p-2 text-start disabled:opacity-40",
-                  isActive && q ? "bg-subtle" : "enabled:hover:bg-subtle",
+                  "pressable grid min-h-16 w-full items-center gap-x-3 rounded-[20px] px-3 py-2.5 text-start disabled:opacity-40 sm:px-4",
+                  grid,
+                  best ? "bg-foreground text-white shadow-[var(--shadow-lift)]" : "card",
+                  isActive && q && "ring-2 ring-foreground",
                 )}
               >
-                <span className="flex shrink-0">
-                  {r.picks.map((b, k) => (
-                    <Portrait key={b} id={model.ids[b]} name={model.names[b]} size={40} className={cn("rounded-[6px]", k > 0 && "-ms-2 ring-2 ring-surface")} />
+                <span className={cn("tabular text-center text-[15px] font-bold", best ? "font-extrabold" : "text-muted")}>{q ? "" : i + 1}</span>
+                <span className="flex shrink-0 gap-2.5">
+                  {r.picks.map((b) => (
+                    <Portrait key={b} id={model.ids[b]} name={model.names[b]} size={40} className="rounded-[10px] sm:size-11! sm:rounded-xl" style={ring(pickRing)} />
                   ))}
                 </span>
-                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <span className="truncate text-[15px] font-medium">{r.picks.map((b) => displayName(model.names[b])).join(" + ")}</span>
-                  {(r.sub || r.off) && <span className="flex flex-wrap items-center gap-1.5 text-xs text-muted">{r.off ?? r.sub}</span>}
+                <span className="flex min-w-0 flex-col gap-0.5">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className={cn("truncate text-[15px]", best ? "font-bold" : "font-semibold")}>{r.picks.map((b) => displayName(model.names[b])).join(" + ")}</span>
+                    {best && <span className="hidden h-[22px] shrink-0 items-center rounded-full bg-surface px-2 text-xs font-bold text-foreground @md:inline-flex">Best</span>}
+                  </span>
+                  {(r.sub || r.off) && (
+                    <span className={cn("flex flex-wrap items-center gap-1.5 text-xs", best ? "text-white/70 [&_span]:border-white/30 [&_span]:text-white/80" : "text-muted")}>
+                      {r.off ?? r.sub}
+                    </span>
+                  )}
                 </span>
-                <span className={cn("tabular text-[17px] font-semibold", r.best && !q && "text-accent")}>{r.value}</span>
-                {isActive && q && <kbd className="hidden rounded border border-border px-1.5 text-xs text-faint sm:inline">↵</kbd>}
+                {withReply && (
+                  <span className="hidden min-w-0 items-center gap-3 @xl:flex">
+                    {r.reply?.length ? (
+                      <>
+                        <span className="flex shrink-0 gap-2.5">
+                          {r.reply.map((b) => (
+                            <Portrait key={b} id={model.ids[b]} name={model.names[b]} size={40} className="rounded-[10px] sm:size-11! sm:rounded-xl" style={ring(replyRing)} />
+                          ))}
+                        </span>
+                        <span className={cn("truncate text-sm", best ? "text-white/75" : "text-muted")}>{r.reply.map((b) => displayName(model.names[b])).join(" + ")}</span>
+                      </>
+                    ) : (
+                      <span className={cn("text-sm", best ? "text-white/75" : "text-muted")}>last pick</span>
+                    )}
+                  </span>
+                )}
+                <span className={cn("tabular text-end", best ? "text-xl font-extrabold" : "text-lg font-bold text-foreground/80")}>
+                  {r.value}
+                  {isActive && q && <kbd className="ms-2 hidden rounded border border-border px-1.5 text-xs font-normal text-muted sm:inline">↵</kbd>}
+                </span>
               </button>
             </li>
           );
