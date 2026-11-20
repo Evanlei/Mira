@@ -9,8 +9,8 @@ import { mapImage, modeInfo } from "@/lib/art";
 import { ModeIcon, cn } from "./ui";
 
 /** The chosen map as a card (faded art behind the name, like jmo's build cards), with the full layout one tap away. */
-export function MapPanel({ model, mp, onChange }: { model: Model; mp: number | null; onChange: () => void }) {
-  const [open, setOpen] = useState(false);
+export function MapPanel({ model, mp, onChange, initialOpen = false }: { model: Model; mp: number | null; onChange: () => void; initialOpen?: boolean }) {
+  const [open, setOpen] = useState(initialOpen);
   const m = mp === null ? null : model.maps[mp];
   const img = m ? mapImage(m.mode, m.map) : null;
 

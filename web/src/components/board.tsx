@@ -25,7 +25,7 @@ export function Teams({ model, draft, target }: { model: Model; draft: Draft; ta
 
     return (
       <div className={cn("flex min-w-0 flex-col gap-3", mirror && "@3xl:items-end")}>
-        <span className={cn("text-sm font-bold", side === "them" && "text-muted")}>{side === "us" ? "Your team" : "Enemy team"}</span>
+        <span className={cn("text-sm font-bold", side === "us" ? "text-us" : "text-them")}>{side === "us" ? "Your team" : "Enemy team"}</span>
         <ol className="flex gap-2.5 sm:gap-3">
           {mySlots.map((s) => {
             const b = picks[s.index];
@@ -38,7 +38,7 @@ export function Teams({ model, draft, target }: { model: Model; draft: Draft; ta
                   <span
                     className={cn(
                       "tabular grid size-[72px] place-items-center rounded-2xl text-2xl font-extrabold sm:size-24 sm:rounded-[20px] sm:text-[28px]",
-                      next ? "turn-glow bg-surface" : "border-[1.5px] border-dashed border-border text-faint",
+                      next ? "turn-glow bg-surface" : "border-[1.5px] border-dashed border-line-strong text-faint",
                     )}
                   >
                     {s.order}
@@ -60,13 +60,18 @@ export function Teams({ model, draft, target }: { model: Model; draft: Draft; ta
                 key={i}
                 title={b !== undefined ? `Banned: ${displayName(model.names[b])}` : undefined}
                 className={cn(
-                  "size-6 overflow-hidden rounded-md",
+                  "relative size-6 overflow-hidden rounded-md",
                   b === undefined && "bg-foreground/[0.06]",
                   i === nextBan && "ring-2 ring-foreground ring-offset-2 ring-offset-background",
                   draft.skipBans && b === undefined && "opacity-40",
                 )}
               >
-                {b !== undefined && <Portrait id={model.ids[b]} name={model.names[b]} className="size-full opacity-55 grayscale" />}
+                {b !== undefined && (
+                  <>
+                    <Portrait id={model.ids[b]} name={model.names[b]} className="size-full opacity-55 grayscale" />
+                    <span aria-hidden className="absolute top-1/2 left-1/2 h-px w-[140%] -translate-1/2 -rotate-45 bg-them" />
+                  </>
+                )}
               </span>
             );
           })}

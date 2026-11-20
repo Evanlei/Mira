@@ -8,6 +8,7 @@ import { turnsRemaining, type BanSuggestion, type Result, type Searcher } from "
 import { applyAll, type Draft, type Target } from "@/lib/draft";
 import { displayName, gainPts, pct, search } from "@/lib/names";
 
+import { activeOrders } from "./draft-screen";
 import { DataChips } from "./panels";
 import { Portrait, cn } from "./ui";
 
@@ -77,10 +78,15 @@ export function Composer({
 
   if (t.kind === "done") return null;
   const ours = t.side === "us";
+  const orders = activeOrders(draft, t);
+  const eyebrow =
+    t.kind === "ban"
+      ? `Ban ${(ours ? draft.bansUs : draft.bansThem).length + 1} of 3 · ${ours ? "your team" : "their team"}`
+      : `${orders.length > 1 ? "Picks" : "Pick"} ${orders.join(" + ")} · ${ours ? "your turn" : "their turn"}`;
   const title =
     t.kind === "ban"
-      ? ours ? "Your ban" : "Their ban"
-      : ours ? "Your turn: best lines" : `Their pick${t.size === 2 ? "s" : ""}: most likely`;
+      ? ours ? "Ban one of these" : "What did they ban?"
+      : ours ? "Best lines" : "What did they pick?";
 
   const scoreOf = (b: number): string => {
     if (t.kind === "ban") {
@@ -108,15 +114,16 @@ export function Composer({
 
   return (
     <section className="flex flex-col gap-3" aria-label={title}>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
-        <h2 className="text-xl font-bold tracking-tight">{title}</h2>
-        {t.kind === "ban" ? (
-          <button onClick={onSkipBans} className="pressable text-[13px] text-muted hover:text-foreground">
-            skip bans
-          </button>
-        ) : (
-          <span className="text-[13px] text-muted">{ours ? "click one to play it" : "tap what they picked"}</span>
-        )}
+      <div className="flex flex-wrap items-end gap-x-3 gap-y-3">
+        <div className="min-w-0">
+          <div className={cn("text-xs font-semibold tracking-[0.06em] uppercase", ours ? "text-us" : "text-them")}>{eyebrow}</div>
+          <h2 className="mt-1 flex items-baseline gap-3 text-2xl font-extrabold tracking-tight">
+            {title}
+            <span className="text-[13px] font-normal tracking-normal text-muted">
+              {t.kind === "ban" ? "win % gained" : ours ? "click one to play it" : "tap what they picked"}
+            </span>
+          </h2>
+        </div>
 
         <label className="card flex h-10 w-full items-center gap-2 rounded-xl px-3 ring-foreground focus-within:ring-2 sm:ms-auto sm:w-[280px]">
           <Search size={15} strokeWidth={1.75} absoluteStrokeWidth className="shrink-0 text-muted" />
@@ -160,15 +167,22 @@ export function Composer({
         replyRing={ours ? "var(--them)" : "var(--us)"}
         pickRing={t.kind === "pick" && !q ? (ours ? "var(--us)" : "var(--them)") : null}
         onHover={(r) => setCursor(live.indexOf(r))}
-        valueLabel={q ? (t.kind === "ban" ? "win % gained" : ours ? "win chance" : "you’d be at") : t.kind === "ban" ? "win % gained" : ours ? "Win" : "likely"}
+        valueLabel={q ? (t.kind === "ban" ? "win % gained" : ours ? "win chance" : "you’d be at") : t.kind === "ban" ? "gained" : ours ? "Win" : "likely"}
         onChoose={choose}
         empty={q ? `No brawler matches “${q}”.` : t.kind === "ban" && !bans ? "Working out the best bans…" : ""}
       />
 
-      <button onClick={onBrowse} className="pressable inline-flex h-9 items-center gap-1.5 self-start text-sm text-muted hover:text-foreground">
-        <LayoutGrid size={15} strokeWidth={1.5} absoluteStrokeWidth />
-        Browse all brawlers
-      </button>
+      <div className="flex items-center justify-between gap-3 text-sm text-muted">
+        <button onClick={onBrowse} className="pressable inline-flex h-10 items-center gap-1.5 hover:text-foreground">
+          <LayoutGrid size={16} strokeWidth={1.75} absoluteStrokeWidth />
+          Browse all brawlers
+        </button>
+        {t.kind === "ban" && (
+          <button onClick={onSkipBans} className="pressable h-10 rounded-full border border-border px-4 hover:text-foreground">
+            Skip bans
+          </button>
+        )}
+      </div>
     </section>
   );
 }
@@ -253,7 +267,7 @@ function Results({
           const isActive = r === active;
           const best = r.best && !q;
           const rowBg = best ? "var(--foreground)" : "var(--surface)";
-          const ring = (color: string | null) => (color ? { boxShadow: `0 0 0 2px ${rowBg}, 0 0 0 4px ${best && color === "var(--us)" ? "var(--surface)" : color}` } : undefined);
+          const ring = (color: string | null) => (color ? { boxShadow: `0 0 0 2px ${rowBg}, 0 0 0 4px ${color}` } : undefined);
           return (
             <li key={r.key} role="option" aria-selected={isActive} aria-disabled={!!r.off}>
               <button
@@ -263,7 +277,7 @@ function Results({
                 className={cn(
                   "pressable grid min-h-16 w-full items-center gap-x-3 rounded-[20px] px-3 py-2.5 text-start disabled:opacity-40 sm:px-4",
                   grid,
-                  best ? "bg-foreground text-white shadow-[var(--shadow-lift)]" : "card",
+                  best ? "bg-foreground text-background shadow-[var(--shadow-lift)]" : "card",
                   isActive && q && "ring-2 ring-foreground",
                 )}
               >
@@ -276,10 +290,10 @@ function Results({
                 <span className="flex min-w-0 flex-col gap-0.5">
                   <span className="flex min-w-0 items-center gap-2">
                     <span className={cn("truncate text-[15px]", best ? "font-bold" : "font-semibold")}>{r.picks.map((b) => displayName(model.names[b])).join(" + ")}</span>
-                    {best && <span className="hidden h-[22px] shrink-0 items-center rounded-full bg-surface px-2 text-xs font-bold text-foreground @md:inline-flex">Best</span>}
+                    {best && <span className="hidden h-[22px] shrink-0 items-center rounded-full bg-background px-2 text-xs font-bold text-foreground @md:inline-flex">Best</span>}
                   </span>
                   {(r.sub || r.off) && (
-                    <span className={cn("flex flex-wrap items-center gap-1.5 text-xs", best ? "text-white/70 [&_span]:border-white/30 [&_span]:text-white/80" : "text-muted")}>
+                    <span className={cn("flex flex-wrap items-center gap-1.5 text-xs", best ? "text-background/70 [&_span]:border-background/30 [&_span]:text-background/80" : "text-muted")}>
                       {r.off ?? r.sub}
                     </span>
                   )}
@@ -293,10 +307,10 @@ function Results({
                             <Portrait key={b} id={model.ids[b]} name={model.names[b]} size={40} className="rounded-[10px] sm:size-11! sm:rounded-xl" style={ring(replyRing)} />
                           ))}
                         </span>
-                        <span className={cn("truncate text-sm", best ? "text-white/75" : "text-muted")}>{r.reply.map((b) => displayName(model.names[b])).join(" + ")}</span>
+                        <span className={cn("truncate text-sm", best ? "text-background/75" : "text-muted")}>{r.reply.map((b) => displayName(model.names[b])).join(" + ")}</span>
                       </>
                     ) : (
-                      <span className={cn("text-sm", best ? "text-white/75" : "text-muted")}>last pick</span>
+                      <span className={cn("text-sm", best ? "text-background/75" : "text-muted")}>last pick</span>
                     )}
                   </span>
                 )}

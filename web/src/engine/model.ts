@@ -17,11 +17,16 @@ export type ModelJson = {
     synergy_mode: [number, number, number, number][];
     matchup: [number, number, number][];
     matchup_mode: [number, number, number, number][];
+    tier?: number[][]; // [B][n_tiers]
+    tier_mode?: number[][][]; // [B][n_tiers][n_modes]
   };
+  tiers?: string[];
+  default_tier?: number;
   pick_model: {
     alpha: number;
     beta: number;
     log_base: number[][];
+    log_base_tier?: number[][][]; // [n_tiers][B][n_maps]
     ally_lift: [number, number, number][];
     enemy_lift: [number, number, number][];
   };
@@ -41,6 +46,11 @@ export class Model {
   private readonly g: number[];
   private readonly sMode: number[][];
   private readonly sMap: number[][];
+  private readonly sTier?: number[][];
+  private readonly sTierMode?: number[][][];
+  /** Rank tier the draft is played at (index into data.tiers). */
+  readonly tier: number;
+  readonly tiers: string[];
   // Pair tables as flat arrays indexed lo*B+hi (and *nModes+mode): faster than Maps in the search.
   private readonly syn: Float64Array;
   private readonly synMode: Float64Array;
@@ -53,7 +63,12 @@ export class Model {
   private readonly logBase: number[][];
   private readonly games?: { brawler: number[]; brawler_map: number[][] };
 
-  constructor(readonly data: ModelJson) {
+  constructor(
+    readonly data: ModelJson,
+    tier?: number,
+  ) {
+    this.tiers = data.tiers ?? [];
+    this.tier = tier ?? data.default_tier ?? 0;
     this.names = data.brawlers.map((b) => b.name);
     this.ids = data.brawlers.map((b) => b.id);
     this.B = this.names.length;
@@ -64,6 +79,8 @@ export class Model {
     this.g = w.global;
     this.sMode = w.mode;
     this.sMap = w.map;
+    this.sTier = w.tier;
+    this.sTierMode = w.tier_mode;
     const B = this.B;
     const nm = this.modes.length;
     this.syn = new Float64Array(B * B);
@@ -77,7 +94,7 @@ export class Model {
     const p = data.pick_model;
     this.alpha = p.alpha;
     this.beta = p.beta;
-    this.logBase = p.log_base;
+    this.logBase = p.log_base_tier?.[this.tier] ?? p.log_base;
     this.ally = new Float64Array(B * B);
     this.enemy = new Float64Array(B * B);
     for (const [i, j, v] of p.ally_lift) this.ally[i * B + j] = this.ally[j * B + i] = v;
@@ -105,7 +122,15 @@ export class Model {
   // -- win model --------------------------------------------------------------
 
   strength(b: number, mp: number): number {
-    return this.g[b] + this.sMode[b][this.modeOfMap[mp]] + this.sMap[b][mp];
+    const k = this.modeOfMap[mp];
+    let s = this.g[b] + this.sMode[b][k] + this.sMap[b][mp];
+    if (this.sTier && this.sTierMode) s += this.sTier[b][this.tier] + this.sTierMode[b][this.tier][k];
+    return s;
+  }
+
+  /** The same model, drafting at another rank tier. */
+  withTier(tier: number): Model {
+    return tier === this.tier ? this : new Model(this.data, tier);
   }
 
   synergy(a: number, b: number, mp: number): number {

@@ -14,7 +14,8 @@ import { Composer } from "./composer";
 import { Summary } from "./panels";
 import { MapPanel } from "./map-panel";
 import { BrawlerSheet, MapSheet, type Ranked } from "./sheets";
-import { Cluster, ModeIcon, cn } from "./ui";
+import { Fan, MapGrid, featuredBrawlers, featuredLabel } from "./start";
+import { ModeIcon, cn } from "./ui";
 
 export function DraftApp() {
   const [model, setModel] = useState<Model | null>(null);
@@ -111,11 +112,7 @@ function Drafter({ model }: { model: Model }) {
   const started = draft.ours.length > 0 || draft.theirs.length > 0 || bannedSet.size > 0;
   const games = model.data.n_matches;
   const isUnavailable = (b: number) => unavailableFor(draft, b, t);
-  const featured = useMemo(() => {
-    // Three most-played brawlers, for the inline cluster in the intro.
-    const counts = model.data.games?.brawler ?? [];
-    return [...counts.keys()].sort((a, b) => counts[b] - counts[a]).slice(0, 3);
-  }, [model]);
+  const featured = useMemo(() => featuredBrawlers(model, 5), [model]);
 
   const m = mp === null ? null : model.maps[mp];
   const img = m ? mapImage(m.mode, m.map) : null;
@@ -123,47 +120,74 @@ function Drafter({ model }: { model: Model }) {
 
   return (
     <div className="flex min-h-full flex-1 flex-col">
-      <header className="bg-bar text-zinc-100">
-        <div className="mx-auto flex h-16 w-full max-w-[1440px] items-center gap-3 px-5 lg:px-12">
-          <span className="me-2 text-xl font-extrabold tracking-tight">Mira</span>
-          {m ? (
-            <>
-              <button
-                onClick={() => setMapOpen(true)}
-                aria-label={`Map: ${m.map}. Change map`}
-                className="pressable flex h-10 min-w-0 items-center gap-2.5 rounded-xl bg-white/[0.08] ps-1.5 pe-3 text-sm font-semibold hover:bg-white/[0.14]"
-              >
-                {img && (
-                  // eslint-disable-next-line @next/next/no-img-element -- static map art
-                  <img src={img} alt="" className="size-7 shrink-0 rounded-lg object-cover" />
-                )}
-                <span className="truncate">{m.map}</span>
-                <ChevronDown size={14} strokeWidth={2} absoluteStrokeWidth className="shrink-0 text-zinc-400" />
-              </button>
-              <span className="hidden h-10 items-center gap-2 rounded-xl bg-white/[0.08] px-3 text-sm font-semibold sm:flex">
-                <ModeIcon mode={m.mode} size={16} />
+      {m && (
+        <header className="border-b border-border">
+          <div className="mx-auto flex h-16 w-full max-w-[1440px] items-center gap-3 px-5 lg:gap-5 lg:px-12">
+            <button onClick={() => commit({ ...EMPTY, weFirst: draft.weFirst })} className="pressable shrink-0 text-xl tracking-tight" title="Back to maps">
+              <span className="font-extrabold">Mira</span> <span className="hidden text-muted sm:inline">(draft coach)</span>
+            </button>
+            <button
+              onClick={() => setMapOpen(true)}
+              aria-label={`Map: ${m.map}, ${modeInfo(m.mode).name}. Change map`}
+              className="pressable ms-auto flex h-10 min-w-0 items-center gap-2 rounded-full border border-border bg-surface ps-1 pe-3.5 text-sm font-semibold lg:ms-2"
+            >
+              {img ? (
+                // eslint-disable-next-line @next/next/no-img-element -- static map art
+                <img src={img} alt="" className="size-[30px] shrink-0 rounded-full object-cover" />
+              ) : (
+                <span className="size-[30px] shrink-0 rounded-full bg-subtle" />
+              )}
+              <ModeIcon mode={m.mode} size={17} />
+              <span className="truncate">{m.map}</span>
+              <span className="hidden font-medium sm:inline" style={{ color: modeInfo(m.mode).color }}>
                 {modeInfo(m.mode).name}
               </span>
-            </>
-          ) : (
-            <span className="hidden text-sm text-zinc-400 sm:inline">Draft coach for Brawl Stars Ranked</span>
-          )}
-        </div>
-      </header>
+              <ChevronDown size={14} strokeWidth={2} absoluteStrokeWidth className="shrink-0 text-faint" />
+            </button>
+          </div>
+        </header>
+      )}
 
       <div className="mx-auto w-full max-w-[1440px] flex-1 px-5 pt-6 pb-[max(32px,env(safe-area-inset-bottom))] lg:px-12 lg:pt-8">
         {m === null || mp === null ? (
-          <main className="enter mx-auto max-w-2xl space-y-6 pt-6">
-            <div className="space-y-3">
-              <h1 className="text-3xl font-extrabold tracking-tight sm:text-4xl">Pick a map to start</h1>
-              <p className="text-[17px] leading-relaxed text-muted">
-                I’ll suggest your best Brawl Stars Ranked picks and bans, learned from{" "}
-                <Cluster model={model} picks={featured} size={28} /> <strong className="tabular text-foreground">{games.toLocaleString()} Masters games</strong>.
-              </p>
-            </div>
-            <MapPanel model={model} mp={mp} onChange={() => setMapOpen(true)} />
-            <FirstPick weFirst={draft.weFirst} onChange={setFirst} disabled={started} />
-          </main>
+          <div className="mx-auto max-w-3xl pt-4 sm:pt-14">
+            <header className="enter flex flex-col-reverse gap-8 sm:flex-row sm:items-end sm:justify-between">
+              <div className="space-y-4">
+                <h1 className="text-4xl leading-tight tracking-tight sm:text-5xl">
+                  <span className="font-extrabold">Mira</span> <span className="text-muted">(draft coach)</span>
+                </h1>
+                <p className="max-w-xl text-[17px] leading-relaxed text-foreground/90 sm:text-xl">
+                  Pick a map and I’ll suggest your best Brawl Stars Ranked picks and bans, learned from{" "}
+                  <strong className="tabular">{games.toLocaleString()} Masters games</strong>.
+                </p>
+              </div>
+              <div className="shrink-0 ps-2 pt-2 sm:pb-2" title={`Most played: ${featuredLabel(model, featured)}`}>
+                <Fan model={model} picks={featured} size={60} />
+              </div>
+            </header>
+            <main className="mt-10 space-y-10">
+              <section className="card enter enter-1 rounded-[22px] p-4 sm:p-5">
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+                  <h2 className="text-lg font-bold tracking-tight">Choose your map</h2>
+                  <FirstPick weFirst={draft.weFirst} onChange={setFirst} disabled={started} />
+                </div>
+                <MapGrid model={model} onPick={(i) => commit({ ...EMPTY, map: i, weFirst: draft.weFirst })} />
+              </section>
+
+              <section aria-label="How it works" className="enter enter-2">
+                <h2 className="mb-3 text-sm font-semibold text-muted">How it works</h2>
+                <ol className="grid gap-3 sm:grid-cols-3">
+                  {HOW.map((x, i) => (
+                    <li key={x.title} className="card rounded-[20px] p-4">
+                      <span className="tabular text-xs font-bold text-faint">{i + 1}</span>
+                      <h3 className="mt-1 text-[15px] font-bold">{x.title}</h3>
+                      <p className="mt-1 text-sm leading-relaxed text-muted">{x.body}</p>
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            </main>
+          </div>
         ) : (
           <main className="grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start lg:gap-12">
             <figure className="enter hidden flex-col gap-3 lg:flex">
@@ -224,11 +248,11 @@ function Drafter({ model }: { model: Model }) {
           </main>
         )}
 
-        <footer className="mt-12 space-y-1 border-t border-border pt-6 text-xs leading-relaxed text-muted">
+        <footer className={cn("mt-12 space-y-1 border-t border-border pt-6 text-xs leading-relaxed text-muted", m === null && "mx-auto max-w-3xl")}>
           <p>
-            Trained on all-Masters Ranked matches up to {model.data.data_window[1].slice(0, 10)}
-            {model.data.patches?.length ? <>, latest patch {model.data.patches.at(-1)!.date}</> : null}. Win chances assume your
-            best play and typical Masters picks from them, so they run high: trust the order more than the number.
+            Trained on Masters-level Ranked matches up to {model.data.data_window[1].slice(0, 10)}
+            {model.data.patches?.length ? <>, latest patch {model.data.patches.at(-1)!.date}</> : null}. Win chances assume good play
+            from both sides, so they run high: trust the order more than the number.
           </p>
           <p>Not affiliated with Supercell. Game art © Supercell, via Brawlify.</p>
         </footer>
@@ -249,6 +273,12 @@ function Drafter({ model }: { model: Model }) {
   );
 }
 
+const HOW = [
+  { title: "Pick the map", body: "Search it or browse by mode, and say who picks first." },
+  { title: "Ban", body: "I suggest the bans worth the most on that map. Or skip straight to picks." },
+  { title: "Draft by lines", body: "Each line shows your picks, their likely reply and your win chance. Type / to enter any brawler." },
+];
+
 /** Who picks first: a two-way switch. Locked once the draft has started (reset to change). */
 function FirstPick({ weFirst, onChange, disabled }: { weFirst: boolean; onChange: (weFirst: boolean) => void; disabled?: boolean }) {
   const opt = (value: boolean, label: string) => {
@@ -261,7 +291,7 @@ function FirstPick({ weFirst, onChange, disabled }: { weFirst: boolean; onChange
         disabled={disabled && !on}
         className={cn(
           "pressable h-8 rounded-lg px-3 text-[13px] disabled:opacity-40",
-          on ? "bg-foreground font-bold text-white" : "font-semibold text-foreground/80 enabled:hover:bg-subtle",
+          on ? "bg-foreground font-bold text-background" : "font-semibold text-foreground/80 enabled:hover:bg-subtle",
         )}
       >
         {label}

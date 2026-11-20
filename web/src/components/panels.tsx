@@ -63,7 +63,9 @@ export function Line({
   previewing,
   onPreview,
   onReset,
+  className,
 }: {
+  className?: string;
   model: Model;
   line: Step[];
   previewing: boolean;
@@ -72,6 +74,7 @@ export function Line({
 }) {
   return (
     <Section
+      className={className}
       title="How it plays out"
       aside={
         previewing ? (

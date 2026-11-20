@@ -1,31 +1,58 @@
 @import "tailwindcss";
 
-/* Mira's draft screen: a stone ground, white cards lifted by soft shadows, black for the
-   active choice (your team, the best line, the selected option) and grey for the enemy.
-   Colour comes from the brawler and map art, not the chrome. Shadow, outline and motion
-   values follow jmo-workflow:better-ui. */
+/* Two Tailwind zinc palettes, picked on the Claude Design canvas:
+   Paper (light, after jmo's portfolio: zinc on near-white with a faint dot grid) and
+   Graphite (dark: zinc greys, no tint). The current step is marked in the text color, not a hue;
+   the only colors are team blue/red and the game art.
+   Shadow, outline and motion values follow jmo-workflow:better-ui. */
 :root {
-  --background: #e9e8e3;
-  --foreground: #141414;
+  --background: #fafafa;
+  --foreground: #18181b; /* zinc-900 */
   --surface: #ffffff;
-  --subtle: #f3f2ee;
-  --accent: #141414;
-  --muted: #5c5c63;
-  --faint: #6e6e75;
-  --border-color: #d6d6d1;
-  --us: #141414;
-  --them: #8e8e96;
-  --warn: #b45309; /* amber-700 */
-  --bar: #1c1c1f;
+  --subtle: #f4f4f5; /* zinc-100 */
+  --accent: #18181b; /* the current step: same as text */
+  --muted: #52525b; /* zinc-600 */
+  --faint: #71717a; /* zinc-500 */
+  --border-color: #e4e4e7; /* zinc-200 */
+  --line-strong: #d4d4d8; /* zinc-300 */
+  --us: #2563eb; /* blue-600 */
+  --them: #dc2626; /* red-600 */
+  --warn: #ea580c; /* orange-600 */
+  --dot: rgba(0, 0, 0, 0.12);
   --image-outline: oklch(0 0 0 / 0.1);
   --shadow-border:
-    0 1px 2px rgba(20, 20, 20, 0.06),
-    0 6px 16px -4px rgba(20, 20, 20, 0.08);
+    0px 0px 0px 1px oklch(0 0 0 / 0.06),
+    0px 1px 2px -1px oklch(0 0 0 / 0.06),
+    0px 2px 4px 0px oklch(0 0 0 / 0.04);
   --shadow-border-hover:
-    0 1px 2px rgba(20, 20, 20, 0.08),
-    0 8px 20px -4px rgba(20, 20, 20, 0.12);
-  --shadow-lift: 0 10px 24px -8px rgba(20, 20, 20, 0.45);
+    0px 0px 0px 1px oklch(0 0 0 / 0.08),
+    0px 1px 2px -1px oklch(0 0 0 / 0.08),
+    0px 2px 4px 0px oklch(0 0 0 / 0.06);
+  --shadow-lift: 0 10px 24px -8px rgba(0, 0, 0, 0.35);
   color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #09090b; /* zinc-950 */
+    --foreground: #fafafa; /* zinc-50 */
+    --surface: #18181b; /* zinc-900 */
+    --subtle: #27272a; /* zinc-800 */
+    --accent: #fafafa;
+    --muted: #a1a1aa; /* zinc-400 */
+    --faint: #71717a; /* zinc-500 */
+    --border-color: #27272a; /* zinc-800 */
+    --line-strong: #3f3f46; /* zinc-700 */
+    --us: #3b82f6; /* blue-500 */
+    --them: #ef4444; /* red-500 */
+    --warn: #fb923c; /* orange-400 */
+    --dot: transparent;
+    --image-outline: oklch(1 0 0 / 0.1);
+    --shadow-border: 0 0 0 1px oklch(1 0 0 / 0.06);
+    --shadow-border-hover: 0 0 0 1px oklch(1 0 0 / 0.12);
+    --shadow-lift: 0 10px 28px -8px rgba(0, 0, 0, 0.7);
+    color-scheme: dark;
+  }
 }
 
 @theme inline {
@@ -37,15 +64,17 @@
   --color-muted: var(--muted);
   --color-faint: var(--faint);
   --color-border: var(--border-color);
+  --color-line-strong: var(--line-strong);
   --color-us: var(--us);
   --color-them: var(--them);
   --color-warn: var(--warn);
-  --color-bar: var(--bar);
   --font-sans: var(--font-figtree);
 }
 
 body {
   background-color: var(--background);
+  background-image: radial-gradient(circle, var(--dot) 1px, transparent 1px);
+  background-size: 20px 20px;
   color: var(--foreground);
   font-family: var(--font-figtree), system-ui, sans-serif;
   -webkit-tap-highlight-color: transparent;
@@ -62,7 +91,7 @@ body {
 
 ::selection {
   background-color: var(--accent);
-  color: white;
+  color: var(--background);
 }
 
 @layer components {
@@ -101,8 +130,38 @@ body {
     outline-offset: -1px;
   }
 
-  /* Your turn: a dark ring that slowly breathes around the open slots. Opacity only, so nothing
-     moves; under reduced motion it stays lit. The "Your pick" label carries the same news. */
+  /* Start screen: the fanned brawler cards lift on hover; map tiles zoom their art and glow in the mode's color. */
+  .fan-card {
+    transition-property: translate, rotate;
+    transition-duration: 300ms;
+    transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+  }
+  .map-tile {
+    transition-property: box-shadow, scale;
+    transition-duration: 150ms;
+    transition-timing-function: ease-out;
+  }
+  .map-tile-art {
+    transition-property: scale;
+    transition-duration: 300ms;
+    transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+  }
+  @media (hover: hover) and (prefers-reduced-motion: no-preference) {
+    .fan-card:hover {
+      translate: 0 -8px !important;
+    }
+    .map-tile:hover .map-tile-art {
+      scale: 1.45;
+    }
+  }
+  @media (hover: hover) {
+    .map-tile:hover {
+      box-shadow: 0 0 0 2px var(--mode), 0 8px 24px -8px color-mix(in oklab, var(--mode) 50%, transparent);
+    }
+  }
+
+  /* Your turn: a ring in the text colour that slowly breathes around the slots being filled.
+     Opacity only, so nothing moves; under reduced motion it stays lit. The slot label says it too. */
   .turn-glow {
     position: relative;
   }
@@ -112,7 +171,9 @@ body {
     inset: -2px;
     border-radius: inherit;
     pointer-events: none;
-    box-shadow: 0 0 0 2px var(--foreground), 0 0 0 7px rgba(20, 20, 20, 0.12);
+    box-shadow:
+      0 0 0 2px var(--foreground),
+      0 0 0 7px color-mix(in oklab, var(--foreground) 14%, transparent);
     opacity: 0.85;
   }
   @media (prefers-reduced-motion: no-preference) {
