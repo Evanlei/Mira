@@ -187,13 +187,13 @@ def _bar(fraction: float, width: int = 20) -> str:
 
 def cmd_readiness(args: argparse.Namespace) -> int:
     conn = _open_db(args)
-    r = readiness.compute(conn, target=args.target, pool_days=args.pool_days)
+    r = readiness.compute(conn, target=args.target, pool_days=args.pool_days, min_lobby_rank=args.min_lobby_rank)
     if r.reference_time is None:
         print("No Ranked matches yet: run `mira crawl` first.")
         return 0
     status = "READY to train" if r.ready else "not ready"
     done = sum(m.matches >= r.target for m in r.pool)
-    print(f"{status}: {done}/{len(r.pool)} maps in the current pool have >= {r.target} all-Masters matches.")
+    print(f"{status}: {done}/{len(r.pool)} maps in the current pool have >= {r.target} matches at {crawler.rank_name(args.min_lobby_rank)}+.")
     print(f"Pool = maps played in the {r.pool_days} days before the newest match ({r.reference_time}).")
     print(f"Overall {r.overall_progress:.0%}; {r.total_needed:,} more matches needed on the thin maps.\n")
     w_mode = max(len(m.mode or "-") for m in r.pool)
@@ -483,10 +483,10 @@ def build_parser() -> argparse.ArgumentParser:
                     help="comma-separated battle.type values that count as ranked (default: %(default)s)")
     sp.add_argument("--min-rank", type=_rank_arg, default=crawler.DEFAULT_MIN_RANK,
                     help="only queue non-seed players seen in Ranked at this rank or higher: 0-22 or a "
-                         "name like legendary1, masters3, pro; 0 disables (default: masters1 = 19)")
+                         "name like legendary1, masters3, pro; 0 disables (default: legendary1 = 16)")
     sp.add_argument("--match-min-rank", type=_rank_arg, default=crawler.DEFAULT_MATCH_MIN_RANK,
                     help="only store ranked matches where all six players are at this rank or higher; "
-                         "0 stores every Ranked match of the crawled players (default: masters1 = 19)")
+                         "0 stores every Ranked match of the crawled players (default: legendary1 = 16)")
     sp.add_argument("--all-types", action="store_true",
                     help="store every 3v3 battle type (trophy, friendly, ...), not just the ranked types")
     sp.set_defaults(func=cmd_crawl)
@@ -501,6 +501,9 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("readiness", help="matches per map in the current Ranked pool vs the training target")
     sp.add_argument("--target", type=int, default=readiness.DEFAULT_TARGET,
                     help="matches needed per map (default: %(default)s)")
+    sp.add_argument("--min-lobby-rank", type=_rank_arg, default=crawler.DEFAULT_MATCH_MIN_RANK,
+                    help="count matches whose lowest player is at this rank or higher (default: legendary1 = 16; "
+                         "masters1 = 19 counts all-Masters lobbies only)")
     sp.add_argument("--pool-days", type=int, default=readiness.DEFAULT_POOL_DAYS,
                     help="a map is in the current pool if played in this many days (default: %(default)s)")
     sp.set_defaults(func=cmd_readiness)
@@ -513,11 +516,11 @@ def build_parser() -> argparse.ArgumentParser:
                         help="weight multiplier for matches played before a patch changed one of their "
                              "brawlers (default: %(default)s)")
         sp.add_argument("--no-tune", action="store_true", help="skip the L2 grid search; use defaults")
-        sp.add_argument("--min-lobby-rank", type=_rank_arg, default=19,
-                        help="ignore matches whose lowest player is below this rank (default: masters1 = 19, "
-                             "i.e. all-Masters lobbies only)")
+        sp.add_argument("--min-lobby-rank", type=_rank_arg, default=16,
+                        help="ignore matches whose lowest player is below this rank (default: legendary1 = 16; "
+                             "masters1 = 19 trains on all-Masters lobbies only)")
         sp.add_argument("--rank-factor", type=float, default=0.5,
-                        help="with --min-lobby-rank below 19: weight multiplier per rank step a lobby sits "
+                        help="weight multiplier per rank step a lobby sits "
                              "below Masters I (default: %(default)s)")
 
     sp = sub.add_parser("evaluate", help="time-split test of the win model vs baselines")

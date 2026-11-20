@@ -39,8 +39,11 @@ DEFAULT_WORKERS = 8
 # 7-9 Gold, 10-12 Diamond, 13-15 Mythic, 16-18 Legendary, 19-21 Masters, 22 Pro.
 RANK_TIERS = ["Bronze", "Silver", "Gold", "Diamond", "Mythic", "Legendary", "Masters"]
 MAX_RANK = 22
-DEFAULT_MIN_RANK = 19  # Masters I
-# Only all-Masters lobbies are stored: a Ranked match needs all six players at Masters I+.
+# After the ranked reset (Nov 2026) most Masters players sit in Legendary while they climb back,
+# so both gates are Legendary I: the crawler follows Legendary I+ players and stores Legendary I+
+# lobbies. Training weights lobbies below Masters down and tests on all-Masters games only.
+MASTERS = 19  # Masters I
+DEFAULT_MIN_RANK = 16  # Legendary I
 DEFAULT_MATCH_MIN_RANK = DEFAULT_MIN_RANK
 
 

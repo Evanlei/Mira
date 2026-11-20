@@ -31,7 +31,7 @@ uv run mira seed --country global             # optional: also queue a trophy le
 uv run mira crawl --minutes 30                # or --players 500; Ctrl-C stops cleanly
 uv run mira crawl --watch --rate 20           # run nonstop, recrawling players as they come due
 scripts/crawl-service.sh install              # same, as a macOS background job (see below)
-uv run mira crawl --min-rank legendary1       # looser rank gate (default masters1)
+uv run mira crawl --min-rank masters1         # stricter rank gate (default legendary1)
 uv run mira crawl --all-types                 # also store trophy/friendly/event 3v3s
 uv run mira stats                             # counts by battle type, mode, map, brawler
 uv run mira stats --type soloRanked           # same, for one battle type
@@ -52,9 +52,9 @@ Global options: `--db PATH` (default `mira.db`) and `--env-file PATH` (default `
 | `--watch` | off | when nobody is due, wait for the next player instead of exiting |
 | `--rate R` | 10 | max requests per second (30 has worked without 429s) |
 | `--ranked-types T` | `soloRanked` | comma-separated `battle.type` values that count as ranked |
-| `--match-min-rank R` | `masters1` (19) | only store ranked matches where all six players are at this rank or higher; `0` stores them all |
+| `--match-min-rank R` | `legendary1` (16) | only store ranked matches where all six players are at this rank or higher; `0` stores them all |
 | `--all-types` | off | store every 3v3 type; by default only the ranked types are stored |
-| `--min-rank R` | `masters1` (19) | only queue players seen in Ranked at this rank or higher; `0` turns the gate off |
+| `--min-rank R` | `legendary1` (16) | only queue players seen in Ranked at this rank or higher; `0` turns the gate off |
 
 ### Keeping up with players
 
@@ -90,10 +90,12 @@ seen at a higher rank, they're queued then. The queue query applies the same gat
 by an earlier ungated crawl are skipped too. The gate only controls who gets crawled: every 3v3
 battle in a crawled log is still stored, subject to the match check below.
 
-**Match check**: a Ranked match is stored only if all six players are at `--match-min-rank` (default
-Masters I) or higher, i.e. only all-Masters lobbies. Its Masters players still feed the queue either
-way. About 31% of Masters players' Ranked matches pass. Each stored match keeps its lowest player's
-rank in `battles.lobby_rank`.
+**Match check**: a Ranked match is stored only if all six players are at `--match-min-rank` or higher.
+The default is Legendary I (16): after the November 2026 ranked reset most Masters players sit in
+Legendary while they climb back, and only ~2% of their games had six current Masters players (74%
+were all Legendary I+). Each stored match keeps its lowest player's rank in `battles.lobby_rank`;
+training weights lower lobbies down and tests on all-Masters games only (see below). Use
+`--match-min-rank masters1 --min-rank masters1` for the old all-Masters-only crawl.
 
 The rank comes from `brawler.trophies`, which in Ranked battles holds the player's rank instead of
 trophies. The assumed encoding is 1–3 Bronze I–III, 4–6 Silver, 7–9 Gold, 10–12 Diamond,
@@ -169,11 +171,11 @@ the crawler itself has no dependencies.
   per-mode). Each group has its own L2 penalty, tuned on the newest 20% of training data.
 - **Weights** (`src/mira/model/patches.py`): matches fade with a 28-day half-life. Matches played
   before a patch changed one of their brawlers count ×0.1. Patches are listed in `data/patches.json`.
-- **Lobby rank**: training uses all-Masters lobbies only (`--min-lobby-rank`, default Masters I).
-  To experiment with lower lobbies, crawl with `--match-min-rank 0` and train with e.g.
-  `--min-lobby-rank legendary1`: each rank step below Masters I then multiplies a match's weight by
-  `--rank-factor` (default 0.5), while the test set, `readiness` and the baselines stay
-  all-Masters and `evaluate` also reports Mira trained on all-Masters matches only.
+- **Lobby rank**: all-Masters lobbies weigh 1, and each rank step below Masters I multiplies a match's
+  weight by `--rank-factor` (default 0.5: Legendary III 0.5, II 0.25, I 0.125). Lobbies below
+  `--min-lobby-rank` (default Legendary I) are not loaded. The test set and the baselines use
+  all-Masters matches only, and `evaluate` also reports Mira trained on all-Masters matches only: keep
+  the lower lobbies only while they beat that. `--min-lobby-rank masters1` trains on Masters only.
 - **Baselines** (`src/mira/model/baselines.py`): their statistics come from training data, and their
   weights are fitted out-of-fold so they aren't overconfident. The DeepDraft-style score rebuilds
   DeepDraft's published method (base + synergy ± counters − role conflict) with fitted weights.
