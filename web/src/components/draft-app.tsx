@@ -13,6 +13,7 @@ import { Teams } from "./board";
 import { Composer } from "./composer";
 import { Summary } from "./panels";
 import { MapPanel } from "./map-panel";
+import { PlayerButton, PlayerSheet, usePlayer, useReady } from "./player";
 import { BrawlerSheet, MapSheet, type Ranked } from "./sheets";
 import { Fan, MapGrid, featuredBrawlers, featuredLabel } from "./start";
 import { ModeIcon, cn } from "./ui";
@@ -47,6 +48,12 @@ function Drafter({ model }: { model: Model }) {
   const [history, setHistory] = useState<Draft[]>([]);
   const [mapOpen, setMapOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [playerOpen, setPlayerOpen] = useState(false);
+  const [onlyReady, setOnlyReady] = useState(true);
+  const { player, loading: playerLoading, connect, disconnect } = usePlayer();
+  const ready = useReady(model, player);
+  // The brawlers your lines may use: your power-11s when connected and "Only my 11s" is on.
+  const mine = ready && onlyReady ? ready : null;
 
   const commit = useCallback((next: Draft) => {
     setDraft((cur) => {
@@ -144,6 +151,9 @@ function Drafter({ model }: { model: Model }) {
               </span>
               <ChevronDown size={14} strokeWidth={2} absoluteStrokeWidth className="shrink-0 text-faint" />
             </button>
+            <span className="hidden sm:ms-auto sm:block">
+              <PlayerButton player={player} onOpen={() => setPlayerOpen(true)} />
+            </span>
           </div>
         </header>
       )}
@@ -151,9 +161,12 @@ function Drafter({ model }: { model: Model }) {
       <div className="mx-auto w-full max-w-[1440px] flex-1 px-5 pt-6 pb-[max(32px,env(safe-area-inset-bottom))] lg:px-12 lg:pt-8">
         {m === null || mp === null ? (
           <div className="enter">
-            <p className="text-lg tracking-tight">
-              <span className="font-extrabold">Mira</span> <span className="text-muted">(draft coach)</span>
-            </p>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-lg tracking-tight">
+                <span className="font-extrabold">Mira</span> <span className="text-muted">(draft coach)</span>
+              </p>
+              <PlayerButton player={player} onOpen={() => setPlayerOpen(true)} />
+            </div>
             <main className="mx-auto flex max-w-2xl flex-col items-center pt-10 text-center sm:pt-16">
               <div title={`Most played: ${featuredLabel(model, featured)}`}>
                 <Fan model={model} picks={featured} size={72} />
@@ -187,6 +200,21 @@ function Drafter({ model }: { model: Model }) {
 
               <div role="toolbar" aria-label="Draft controls" className="flex flex-wrap items-center gap-2">
                 {!started && <FirstPick weFirst={draft.weFirst} onChange={setFirst} />}
+                {ready && (
+                  <button
+                    role="switch"
+                    aria-checked={onlyReady}
+                    onClick={() => setOnlyReady((v) => !v)}
+                    title={`${ready.size} of your brawlers are at power 11`}
+                    className={cn(
+                      "pressable flex h-10 items-center gap-2 rounded-full px-4 text-[13px] font-semibold",
+                      onlyReady ? "bg-foreground text-background" : "bg-subtle text-muted hover:text-foreground",
+                    )}
+                  >
+                    Only my 11s
+                    <span className={cn("tabular font-medium", onlyReady ? "text-background/60" : "text-faint")}>{ready.size}</span>
+                  </button>
+                )}
                 <span className="ms-auto flex gap-2">
                   <ToolButton label="Undo" onClick={undo} disabled={!history.length}>
                     <Undo2 size={16} strokeWidth={2} absoluteStrokeWidth />
@@ -213,6 +241,7 @@ function Drafter({ model }: { model: Model }) {
                   onApply={(picks) => commit(applyAll(draft, picks))}
                   onSkipBans={() => commit({ ...draft, skipBans: true })}
                   onBrowse={() => setPickerOpen(true)}
+                  ready={mine}
                 />
               ) : (
                 result && <Summary model={model} ours={draft.ours} theirs={draft.theirs} mp={mp} win={result.win} />
@@ -232,6 +261,15 @@ function Drafter({ model }: { model: Model }) {
       </div>
 
       <MapSheet model={model} open={mapOpen} onClose={() => setMapOpen(false)} current={mp} onPick={(i) => commit({ ...EMPTY, map: i, weFirst: draft.weFirst })} />
+      <PlayerSheet
+        open={playerOpen}
+        onClose={() => setPlayerOpen(false)}
+        player={player}
+        ready={ready}
+        loading={playerLoading}
+        connect={connect}
+        disconnect={disconnect}
+      />
       <BrawlerSheet
         model={model}
         open={pickerOpen}

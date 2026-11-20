@@ -31,6 +31,7 @@ export function Composer({
   onApply,
   onSkipBans,
   onBrowse,
+  ready,
 }: {
   model: Model;
   draft: Draft;
@@ -44,6 +45,8 @@ export function Composer({
   onApply: (picks: number[]) => void;
   onSkipBans: () => void;
   onBrowse: () => void;
+  /** Your brawlers at power 11 when "Only my 11s" is on: your lines use only these. Null = anyone. */
+  ready: ReadonlySet<number> | null;
 }) {
   const [q, setQ] = useState("");
   const [cursor, setCursor] = useState(0);
@@ -67,13 +70,13 @@ export function Composer({
   const replies = useMemo(() => {
     const out = new Map<string, number[]>();
     if (!searcher || !result || t.kind !== "pick" || t.side !== "us") return out;
-    for (const o of result.suggestions) {
+    for (const o of result.suggestions.filter((o) => !ready || o.picks.every((b) => ready.has(b)))) {
       const d = applyAll(draft, o.picks);
       const step = searcher.run(d.ours, d.theirs, d.weFirst, 0).line[0];
       out.set(o.picks.join("-"), step && step.side === "them" ? step.chosen.picks : []);
     }
     return out;
-  }, [searcher, result, draft, t]);
+  }, [searcher, result, draft, t, ready]);
 
   if (t.kind === "done") return null;
   const ours = t.side === "us";
@@ -95,7 +98,7 @@ export function Composer({
 
   const rows: Row[] = q
     ? matches(model, q, isUnavailable, draft).map((r) => ({ ...r, value: r.off ? "" : scoreOf(r.picks[0]) }))
-    : suggestionRows(model, t, result, bans, mp, replies);
+    : suggestionRows(model, t, result, bans, mp, replies, ready);
   const live = rows.filter((r) => !r.off);
   const active = live.length ? live[((cursor % live.length) + live.length) % live.length] : null;
   const choose = (r: Row) => {
@@ -158,7 +161,15 @@ export function Composer({
         onHover={(r) => setCursor(live.indexOf(r))}
         valueLabel={q ? (t.kind === "ban" ? "win % gained" : ours ? "win chance" : "you’d be at") : t.kind === "ban" ? "gained" : ours ? "Win" : "likely"}
         onChoose={choose}
-        empty={q ? `No brawler matches “${q}”.` : t.kind === "ban" && !bans ? "Working out the best bans…" : ""}
+        empty={
+          q
+            ? `No brawler matches “${q}”.`
+            : t.kind === "ban" && !bans
+              ? "Working out the best bans…"
+              : t.kind === "pick" && ours && ready
+                ? "None of the lines Mira considered use only your power-11 brawlers. Turn off “Only my 11s”, or type any brawler."
+                : ""
+        }
       />
 
       <div className="flex items-center justify-between gap-3 text-sm text-muted">
@@ -196,11 +207,21 @@ function matches(model: Model, q: string, isUnavailable: (b: number) => boolean,
     }));
 }
 
-function suggestionRows(model: Model, t: Target, result: Result | null, bans: BanSuggestion[] | null, mp: number, replies: Map<string, number[]>): Row[] {
+function suggestionRows(
+  model: Model,
+  t: Target,
+  result: Result | null,
+  bans: BanSuggestion[] | null,
+  mp: number,
+  replies: Map<string, number[]>,
+  ready: ReadonlySet<number> | null,
+): Row[] {
   if (t.kind === "ban") return (bans ?? []).map((x, i) => ({ key: String(x.brawler), picks: [x.brawler], value: gainPts(x.gain), best: i === 0 }));
   if (!result || t.kind !== "pick") return [];
   const ours = t.side === "us";
-  return result.suggestions.map((o, i) => ({
+  // Your lines keep to your power-11 brawlers when that's on. Their picks are never filtered.
+  const kept = ours && ready ? result.suggestions.filter((o) => o.picks.every((b) => ready.has(b))) : result.suggestions;
+  return kept.map((o, i) => ({
     key: o.picks.join("-"),
     picks: o.picks,
     value: ours ? pct(o.win) : pct(o.prob ?? 0),
