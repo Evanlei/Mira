@@ -8,7 +8,6 @@ import { turnsRemaining, type BanSuggestion, type Result, type Searcher } from "
 import { applyAll, type Draft, type Target } from "@/lib/draft";
 import { displayName, gainPts, pct, search } from "@/lib/names";
 
-import { activeOrders } from "./draft-screen";
 import { DataChips } from "./panels";
 import { Portrait, cn } from "./ui";
 
@@ -68,7 +67,7 @@ export function Composer({
   const replies = useMemo(() => {
     const out = new Map<string, number[]>();
     if (!searcher || !result || t.kind !== "pick" || t.side !== "us") return out;
-    for (const o of result.suggestions.slice(0, 5)) {
+    for (const o of result.suggestions) {
       const d = applyAll(draft, o.picks);
       const step = searcher.run(d.ours, d.theirs, d.weFirst, 0).line[0];
       out.set(o.picks.join("-"), step && step.side === "them" ? step.chosen.picks : []);
@@ -78,11 +77,6 @@ export function Composer({
 
   if (t.kind === "done") return null;
   const ours = t.side === "us";
-  const orders = activeOrders(draft, t);
-  const eyebrow =
-    t.kind === "ban"
-      ? `Ban ${(ours ? draft.bansUs : draft.bansThem).length + 1} of 3 · ${ours ? "your team" : "their team"}`
-      : `${orders.length > 1 ? "Picks" : "Pick"} ${orders.join(" + ")} · ${ours ? "your turn" : "their turn"}`;
   const title =
     t.kind === "ban"
       ? ours ? "Ban one of these" : "What did they ban?"
@@ -114,16 +108,11 @@ export function Composer({
 
   return (
     <section className="flex flex-col gap-3" aria-label={title}>
-      <div className="flex flex-wrap items-end gap-x-3 gap-y-3">
-        <div className="min-w-0">
-          <div className={cn("text-xs font-semibold tracking-[0.06em] uppercase", ours ? "text-us" : "text-them")}>{eyebrow}</div>
-          <h2 className="mt-1 flex items-baseline gap-3 text-2xl font-extrabold tracking-tight">
-            {title}
-            <span className="text-[13px] font-normal tracking-normal text-muted">
-              {t.kind === "ban" ? "win % gained" : ours ? "click one to play it" : "tap what they picked"}
-            </span>
-          </h2>
-        </div>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
+        <h2 className="flex items-baseline gap-2.5 text-2xl font-extrabold tracking-tight">
+          {title}
+          {!q && rows.length > 0 && <span className="tabular text-sm font-medium tracking-normal text-faint">{rows.length}</span>}
+        </h2>
 
         <label className="flex h-10 w-full items-center gap-2 rounded-full bg-subtle px-4 ring-foreground focus-within:ring-2 sm:ms-auto sm:w-[280px]">
           <Search size={15} strokeWidth={1.5} absoluteStrokeWidth className="shrink-0 text-muted" />
@@ -211,7 +200,7 @@ function suggestionRows(model: Model, t: Target, result: Result | null, bans: Ba
   if (t.kind === "ban") return (bans ?? []).map((x, i) => ({ key: String(x.brawler), picks: [x.brawler], value: gainPts(x.gain), best: i === 0 }));
   if (!result || t.kind !== "pick") return [];
   const ours = t.side === "us";
-  return result.suggestions.slice(0, 5).map((o, i) => ({
+  return result.suggestions.map((o, i) => ({
     key: o.picks.join("-"),
     picks: o.picks,
     value: ours ? pct(o.win) : pct(o.prob ?? 0),
@@ -262,7 +251,12 @@ function Results({
         {withReply && <span className="hidden @xl:block">Them · likely reply</span>}
         <span className="text-end">{valueLabel}</span>
       </div>
-      <ul role="listbox" aria-label={label} className="flex flex-col gap-2">
+      {/* Every line the search kept, in a fixed-height pane: a partly visible last row says "scroll". */}
+      <ul
+        role="listbox"
+        aria-label={label}
+        className="-mx-2 flex max-h-[min(31rem,58dvh)] flex-col gap-2 overflow-y-auto lg:max-h-[max(20rem,calc(100dvh-32rem))] overscroll-contain px-2 pt-0.5 pb-3 [scrollbar-width:thin]"
+      >
         {rows.map((r, i) => {
           const isActive = r === active;
           const best = r.best && !q;
@@ -290,7 +284,6 @@ function Results({
                 <span className="flex min-w-0 flex-col gap-0.5">
                   <span className="flex min-w-0 items-center gap-2">
                     <span className={cn("truncate text-[15px]", best ? "font-bold" : "font-semibold")}>{r.picks.map((b) => displayName(model.names[b])).join(" + ")}</span>
-                    {best && <span className="hidden h-[22px] shrink-0 items-center rounded-full bg-background px-2 text-xs font-bold text-foreground @md:inline-flex">Best</span>}
                   </span>
                   {(r.sub || r.off) && (
                     <span className={cn("flex flex-wrap items-center gap-1.5 text-xs", best ? "text-background/70 [&_span]:border-background/30 [&_span]:text-background/80" : "text-muted")}>

@@ -83,9 +83,6 @@ export function Teams({ model, draft, target }: { model: Model; draft: Draft; ta
   return (
     <section aria-label="Teams" className="flex flex-col gap-6 @3xl:flex-row @3xl:items-start @3xl:justify-between">
       {team("us")}
-      <span aria-hidden className="hidden self-center text-sm font-bold tracking-[0.08em] text-faint @3xl:block">
-        VS
-      </span>
       <hr className="border-border @3xl:hidden" />
       {team("them")}
     </section>

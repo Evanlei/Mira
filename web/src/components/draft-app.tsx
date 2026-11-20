@@ -86,7 +86,7 @@ function Drafter({ model }: { model: Model }) {
   const banKey = mp === null || t.kind !== "ban" ? null : `${mp}|${draft.weFirst}|${[...bannedSet].sort().join(",")}`;
   useEffect(() => {
     if (banKey === null || mp === null) return;
-    const id = setTimeout(() => setBanResult({ key: banKey, bans: suggestBans(model, mp, draft.weFirst, bannedSet, 5) }), 16);
+    const id = setTimeout(() => setBanResult({ key: banKey, bans: suggestBans(model, mp, draft.weFirst, bannedSet, 15) }), 16);
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [banKey]);
@@ -173,21 +173,11 @@ function Drafter({ model }: { model: Model }) {
           </div>
         ) : (
           <main className="grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start lg:gap-12">
-            <figure className="enter hidden flex-col gap-3 lg:flex">
+            <figure className="enter sticky top-6 hidden lg:block">
               {img && (
                 // eslint-disable-next-line @next/next/no-img-element -- static map art
                 <img src={img} alt={`${m.map} layout`} className="art aspect-[690/1050] w-full rounded-3xl object-cover" />
               )}
-              <figcaption className="flex items-center gap-2.5 px-1">
-                <ModeIcon mode={m.mode} size={18} />
-                <span className="flex flex-1 items-baseline gap-2">
-                  <span className="text-[15px] font-bold">{m.map}</span>
-                  <span className="text-[13px] text-muted">{modeInfo(m.mode).name}</span>
-                </span>
-                <button onClick={() => setMapOpen(true)} className="pressable h-8 rounded-full bg-subtle px-3.5 text-[13px] font-semibold text-muted hover:text-foreground">
-                  Change
-                </button>
-              </figcaption>
             </figure>
 
             <div className="enter enter-1 @container flex min-w-0 flex-col gap-8 lg:gap-10">
@@ -196,7 +186,7 @@ function Drafter({ model }: { model: Model }) {
               </div>
 
               <div role="toolbar" aria-label="Draft controls" className="flex flex-wrap items-center gap-2">
-                <FirstPick weFirst={draft.weFirst} onChange={setFirst} disabled={started} />
+                {!started && <FirstPick weFirst={draft.weFirst} onChange={setFirst} />}
                 <span className="ms-auto flex gap-2">
                   <ToolButton label="Undo" onClick={undo} disabled={!history.length}>
                     <Undo2 size={16} strokeWidth={2} absoluteStrokeWidth />
