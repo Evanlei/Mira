@@ -40,6 +40,9 @@ DEFAULT_WORKERS = 8
 RANK_TIERS = ["Bronze", "Silver", "Gold", "Diamond", "Mythic", "Legendary", "Masters"]
 MAX_RANK = 22
 DEFAULT_MIN_RANK = 19  # Masters I
+# Matches are stored whatever the lobby's ranks (the crawled player is Masters+ anyway);
+# training weights lower lobbies down. Set --match-min-rank to store only higher lobbies.
+DEFAULT_MATCH_MIN_RANK = 0
 
 
 def rank_name(rank: int | None) -> str:

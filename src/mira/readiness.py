@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 DEFAULT_TARGET = 3000
 DEFAULT_POOL_DAYS = 7
 RANKED_TYPE = "soloRanked"
+MASTERS = 19  # only all-Masters lobbies count toward the target
 
 
 @dataclass
@@ -54,6 +55,7 @@ def compute(
     target: int = DEFAULT_TARGET,
     pool_days: int = DEFAULT_POOL_DAYS,
     battle_type: str = RANKED_TYPE,
+    min_lobby_rank: int = MASTERS,
 ) -> Readiness:
     """The window is anchored on the newest stored battle, not the wall clock, so the
     pool stays meaningful even if the crawler hasn't run for a while."""
@@ -68,11 +70,11 @@ def compute(
     rows = conn.execute(
         """
         SELECT mode, map, COUNT(*) AS matches, MAX(battle_time) AS last_seen
-        FROM battles WHERE battle_type = ?
+        FROM battles WHERE battle_type = ? AND (lobby_rank IS NULL OR lobby_rank >= ?)
         GROUP BY mode, map
         ORDER BY matches ASC, mode, map
         """,
-        (battle_type,),
+        (battle_type, min_lobby_rank),
     ).fetchall()
     pool, retired = [], []
     for r in rows:

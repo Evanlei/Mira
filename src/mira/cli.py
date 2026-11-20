@@ -214,7 +214,7 @@ def _load_training_data(args: argparse.Namespace):
     except ImportError as e:  # numpy missing
         raise SystemExit(f"error: training needs numpy ({e}). Run `uv sync`.") from None
     conn = _open_db(args)
-    m = dataset.load(conn)
+    m = dataset.load(conn, min_lobby_rank=args.min_lobby_rank or None)
     if len(m) < 200:
         raise SystemExit(f"error: only {len(m)} Ranked matches in {args.db}; crawl more first.")
     plog = patches.load(args.patches)
@@ -226,16 +226,22 @@ def _load_training_data(args: argparse.Namespace):
 
 
 def cmd_evaluate(args: argparse.Namespace) -> int:
+    import numpy as np
+
     from .model import evaluate
 
     m, plog = _load_training_data(args)
-    print(f"Evaluating on {len(m):,} all-Masters Ranked matches ({m.times[0]} .. {m.times[-1]}), "
+    n_masters = int(m.masters_mask().sum())
+    print(f"Evaluating on {len(m):,} Ranked matches ({n_masters:,} all-Masters; {m.times[0]} .. {m.times[-1]}), "
           f"{len(plog)} patches in {args.patches}.")
+    print(f"Lower lobbies weigh {args.rank_factor:g} per rank below Masters I; the test set is all-Masters only.")
     if not args.no_tune:
         print("Tuning L2 strengths (coordinate descent on the newest 20% of training matches)...", flush=True)
     r = evaluate.run(m, plog, test_days=args.test_days, half_life_days=args.half_life,
-                     pre_patch_factor=args.pre_patch_factor, tune=not args.no_tune)
-    print(f"\nTest split: {r.split}. Train {r.n_train:,} / test {r.n_test:,} matches.")
+                     pre_patch_factor=args.pre_patch_factor, tune=not args.no_tune,
+                     rank_factor=args.rank_factor)
+    print(f"\nTest split: {r.split}. Train {r.n_train:,} ({r.n_train_masters:,} all-Masters) / "
+          f"test {r.n_test:,} all-Masters matches.")
     print("Chosen L2: " + ", ".join(f"{k}={v:g}" for k, v in r.l2.items()))
     w = max(len(s.name) for s in r.scores)
     print(f"\n  {'model'.ljust(w)}  log loss   Brier  accuracy  calib. err")
@@ -250,12 +256,14 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
     from .model import pickmodel
     from .model.evaluate import time_split
     mask, _ = time_split(m, args.test_days)
-    train, test = m.subset(~mask), m.subset(mask)
+    train, test = m.subset(~mask), m.subset(mask & m.masters_mask())
+    w_tr = train.rank_weights(args.rank_factor)
     k = int(round(len(train) * 0.8))
-    tuned = pickmodel.tune(pickmodel.PickModel.fit(train.subset(slice(0, k))), train.subset(slice(k, k + 1500)))
-    full = pickmodel.PickModel.fit(train)
+    val = train.subset(np.flatnonzero(train.masters_mask()[k:]) + k)
+    tuned = pickmodel.tune(pickmodel.PickModel.fit(train.subset(slice(0, k)), w_tr[:k]), val.subset(slice(0, 1500)))
+    full = pickmodel.PickModel.fit(train, w_tr)
     full.alpha, full.beta = tuned.alpha, tuned.beta
-    base = pickmodel.PickModel.fit(train)
+    base = pickmodel.PickModel.fit(train, w_tr)
     base.alpha = base.beta = 0.0
     sample = test.subset(slice(0, 3000))
     print(f"\nPick model (predict each brawler from the map, its 2 allies and 3 enemies; "
@@ -269,11 +277,13 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
 
 
 def cmd_train(args: argparse.Namespace) -> int:
+    import numpy as np
+
     from .model import evaluate, export
     from .model.winmodel import DEFAULT_L2, WinModel
 
     m, plog = _load_training_data(args)
-    w = evaluate.weights_for(m, plog, args.half_life, args.pre_patch_factor)
+    w = evaluate.weights_for(m, plog, args.half_life, args.pre_patch_factor, args.rank_factor)
     if args.no_tune:
         l2 = dict(DEFAULT_L2)
     else:
@@ -283,17 +293,20 @@ def cmd_train(args: argparse.Namespace) -> int:
     model = WinModel.fit(m, w, l2)
     from .model.pickmodel import PickModel, tune as tune_pick
     k = int(round(len(m) * 0.8))
-    pm = tune_pick(PickModel.fit(m.subset(slice(0, k)), w[:k]), m.subset(slice(k, k + 1500)))
+    val = m.subset(np.flatnonzero(m.masters_mask()[k:]) + k)
+    pm = tune_pick(PickModel.fit(m.subset(slice(0, k)), w[:k]), val.subset(slice(0, 1500)))
     pick = PickModel.fit(m, w)
     pick.alpha, pick.beta = pm.alpha, pm.beta
     print(f"Pick model: alpha={pick.alpha:g}, beta={pick.beta:g}")
-    data = export.to_dict(model, m, export.game_counts(m), extra={
+    data = export.to_dict(model, m, export.game_counts(m, args.rank_factor), extra={
         "pick_model": export.pick_model_dict(pick),
         "patches": [{"date": p.date, "changes": p.changes} for p in plog],
-        "weighting": {"half_life_days": args.half_life, "pre_patch_factor": args.pre_patch_factor},
+        "weighting": {"half_life_days": args.half_life, "pre_patch_factor": args.pre_patch_factor,
+                      "min_lobby_rank": args.min_lobby_rank, "rank_factor": args.rank_factor},
     })
     size = export.write(args.out, data)
-    print(f"Wrote {args.out} ({size / 1e6:.2f} MB) from {len(m):,} matches. "
+    print(f"Wrote {args.out} ({size / 1e6:.2f} MB) from {len(m):,} matches "
+          f"({int(m.masters_mask().sum()):,} all-Masters). "
           "Run `mira evaluate` for held-out accuracy.")
     return 0
 
@@ -471,9 +484,10 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--min-rank", type=_rank_arg, default=crawler.DEFAULT_MIN_RANK,
                     help="only queue non-seed players seen in Ranked at this rank or higher: 0-22 or a "
                          "name like legendary1, masters3, pro; 0 disables (default: masters1 = 19)")
-    sp.add_argument("--match-min-rank", type=_rank_arg, default=crawler.DEFAULT_MIN_RANK,
+    sp.add_argument("--match-min-rank", type=_rank_arg, default=crawler.DEFAULT_MATCH_MIN_RANK,
                     help="only store ranked matches where all six players are at this rank or higher; "
-                         "0 disables (default: masters1 = 19)")
+                         "0 (default) stores every Ranked match of the crawled players, and training "
+                         "weights lower lobbies down")
     sp.add_argument("--all-types", action="store_true",
                     help="store every 3v3 battle type (trophy, friendly, ...), not just the ranked types")
     sp.set_defaults(func=cmd_crawl)
@@ -500,6 +514,11 @@ def build_parser() -> argparse.ArgumentParser:
                         help="weight multiplier for matches played before a patch changed one of their "
                              "brawlers (default: %(default)s)")
         sp.add_argument("--no-tune", action="store_true", help="skip the L2 grid search; use defaults")
+        sp.add_argument("--min-lobby-rank", type=_rank_arg, default=16,
+                        help="ignore matches whose lowest player is below this rank (default: legendary1 = 16)")
+        sp.add_argument("--rank-factor", type=float, default=0.5,
+                        help="weight multiplier per rank step a lobby sits below Masters I; all-Masters "
+                             "lobbies weigh 1, and 0 trains on all-Masters only (default: %(default)s)")
 
     sp = sub.add_parser("evaluate", help="time-split test of the win model vs baselines")
     model_args(sp)

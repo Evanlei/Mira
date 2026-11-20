@@ -10,7 +10,7 @@ import numpy as np
 
 from . import patches as patchlog
 from .baselines import Coin, DeepDraftStyle, MapWinRate
-from .dataset import Matches
+from .dataset import DEFAULT_RANK_FACTOR, Matches
 from .winmodel import DEFAULT_L2, WinModel
 
 # Candidate L2 values per group, in pseudo-games. "pair" sets synergy and matchup (all-mode terms);
@@ -90,10 +90,12 @@ def time_split(m: Matches, test_days: float = 7.0, max_test_frac: float = 0.3,
 
 # -- training -----------------------------------------------------------------
 
-def weights_for(m: Matches, patches, half_life_days: float, pre_patch_factor: float) -> np.ndarray:
+def weights_for(m: Matches, patches, half_life_days: float, pre_patch_factor: float,
+                rank_factor: float = DEFAULT_RANK_FACTOR) -> np.ndarray:
+    """Recency x patch x lobby-rank weight per match."""
     return np.array(patchlog.match_weights(
         m.times, m.names_per_match(), patches, reference=m.times[-1],
-        half_life_days=half_life_days, pre_patch_factor=pre_patch_factor))
+        half_life_days=half_life_days, pre_patch_factor=pre_patch_factor)) * m.rank_weights(rank_factor)
 
 
 def _l2_from(choice: dict) -> dict:
@@ -134,17 +136,32 @@ class Report:
     comparisons: list[tuple[str, float, float, float]]  # (baseline, mean diff, lo, hi)
     passes: bool
     reasons: list[str]
+    n_train_masters: int = 0
+
+
+MASTERS_ONLY = "Mira, all-Masters lobbies only"
 
 
 def run(m: Matches, patches=(), test_days: float = 7.0, half_life_days: float = 28.0,
-        pre_patch_factor: float = 0.1, tune: bool = True, seed: int = 0) -> Report:
+        pre_patch_factor: float = 0.1, tune: bool = True, seed: int = 0,
+        rank_factor: float = DEFAULT_RANK_FACTOR) -> Report:
+    """Train on everything before the split (lower lobbies weighted down); test only on
+    all-Masters matches after it. Baselines see all-Masters training matches only, as
+    before; "Mira, all-Masters only" shows whether the lower lobbies help."""
     test_mask, split_desc = time_split(m, test_days)
-    train, test = m.subset(~test_mask), m.subset(test_mask)
-    w_train = weights_for(train, list(patches), half_life_days, pre_patch_factor)
+    train, test = m.subset(~test_mask), m.subset(test_mask & m.masters_mask())
+    masters_train = train.subset(train.masters_mask())
+    w_train = weights_for(train, list(patches), half_life_days, pre_patch_factor, rank_factor)
     l2 = tune_l2(train, w_train)[0] if tune else dict(DEFAULT_L2)
     model = WinModel.fit(train, w_train, l2)
 
-    scores = [score(b.name, test.y, b.fit(train).predict(test)) for b in (Coin(), MapWinRate(), DeepDraftStyle())]
+    scores = [score(b.name, test.y, b.fit(masters_train).predict(test))
+              for b in (Coin(), MapWinRate(), DeepDraftStyle())]
+    has_lower = len(masters_train) < len(train)
+    if has_lower:
+        w_m = weights_for(masters_train, list(patches), half_life_days, pre_patch_factor)
+        l2_m = tune_l2(masters_train, w_m)[0] if tune else dict(DEFAULT_L2)
+        scores.append(score(MASTERS_ONLY, test.y, WinModel.fit(masters_train, w_m, l2_m).predict(test)))
     mira = score("Mira win model", test.y, model.predict(test))
     scores.append(mira)
     comparisons = [(s.name, *paired_bootstrap(mira.per_match_loss, s.per_match_loss, seed=seed)) for s in scores[:-1]]
@@ -155,4 +172,5 @@ def run(m: Matches, patches=(), test_days: float = 7.0, half_life_days: float = 
         reasons.append("log loss is not clearly better than the DeepDraft-style baseline (95% interval includes 0)")
     if mira.ece > 0.03:
         reasons.append(f"calibration error {mira.ece:.3f} > 0.03")
-    return Report(split_desc, len(train), len(test), l2, scores, comparisons, not reasons, reasons)
+    return Report(split_desc, len(train), len(test), l2, scores, comparisons, not reasons, reasons,
+                  len(masters_train))

@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from mira.model import patches as patchlog
+from mira.model import evaluate, patches as patchlog
 from mira.model.baselines import Coin, DeepDraftStyle, MapWinRate
 from mira.model.dataset import Matches
 from mira.model.evaluate import calibration_error, log_loss, paired_bootstrap, time_split
@@ -113,6 +113,24 @@ class MetricTests(unittest.TestCase):
         mask, desc = time_split(m, test_days=7)
         self.assertEqual(mask.sum(), 20)
         self.assertIn("newest 20%", desc)
+
+
+class LobbyRankWeightTests(unittest.TestCase):
+    def test_rank_weights_and_test_set(self):
+        m = synthetic(n=3000, seed=3)
+        rng = np.random.default_rng(0)
+        m.lobby_rank = rng.choice([16, 17, 18, 19, 20], size=len(m)).astype(np.int32)
+        w = m.rank_weights(0.5)
+        self.assertTrue(np.all(w[m.lobby_rank >= 19] == 1.0))
+        self.assertTrue(np.allclose(w[m.lobby_rank == 17], 0.25))
+        self.assertTrue(np.all(m.rank_weights(0.0)[m.lobby_rank < 19] == 0.0))
+        sub = m.subset(slice(10, 20))
+        self.assertTrue(np.array_equal(sub.lobby_rank, m.lobby_rank[10:20]))
+        r = evaluate.run(m, tune=False, test_days=7.0)
+        # Test set holds only all-Masters matches; a Masters-only Mira is reported alongside.
+        self.assertEqual(r.n_test, int((m.masters_mask() & evaluate.time_split(m, 7.0)[0]).sum()))
+        self.assertIn(evaluate.MASTERS_ONLY, [s.name for s in r.scores])
+        self.assertLess(r.n_train_masters, r.n_train)
 
 
 class PatchWeightTests(unittest.TestCase):

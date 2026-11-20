@@ -81,7 +81,10 @@ MIGRATIONS = [
     ("players", "max_rank", "INTEGER"),
     ("players", "is_seed", "INTEGER NOT NULL DEFAULT 0"),
     ("players", "next_due", "REAL"),  # unix seconds; when this player's log should be read again
+    ("battles", "lobby_rank", "INTEGER"),  # lowest Ranked rank of the six players; NULL if not ranked
 ]
+
+RANKED_TYPE = "soloRanked"  # the only type whose brawler.trophies holds a rank
 
 
 def init_db(conn: sqlite3.Connection) -> None:
@@ -90,6 +93,10 @@ def init_db(conn: sqlite3.Connection) -> None:
         cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
         if column not in cols:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+            if (table, column) == ("battles", "lobby_rank"):
+                conn.execute(
+                    "UPDATE battles SET lobby_rank = (SELECT MIN(trophies) FROM battle_players bp "
+                    "WHERE bp.battle_id = battles.battle_id) WHERE battle_type = ?", (RANKED_TYPE,))
     conn.commit()
 
 
@@ -190,6 +197,13 @@ def mark_crawled(
     )
 
 
+def lobby_rank(b: ParsedBattle) -> int | None:
+    """Lowest rank among the six players of a Ranked battle (None otherwise)."""
+    if b.battle_type != RANKED_TYPE or any(p.trophies is None for p in b.players):
+        return None
+    return min(p.trophies for p in b.players)
+
+
 def insert_battle(
     conn: sqlite3.Connection, b: ParsedBattle, source_tag: str, now: float | None = None
 ) -> bool:
@@ -199,13 +213,13 @@ def insert_battle(
         """
         INSERT OR IGNORE INTO battles
             (battle_id, battle_time, event_id, mode, map, battle_type, duration,
-             winning_team, is_draw, source_tag, raw_json, inserted_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             winning_team, is_draw, source_tag, raw_json, inserted_at, lobby_rank)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             b.battle_id, b.battle_time, b.event_id, b.mode, b.map, b.battle_type, b.duration,
             b.winning_team, int(b.is_draw), source_tag,
-            json.dumps(b.raw, separators=(",", ":")), now,
+            json.dumps(b.raw, separators=(",", ":")), now, lobby_rank(b),
         ),
     )
     if cur.rowcount == 0:

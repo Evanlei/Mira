@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .dataset import Matches
+from .dataset import DEFAULT_RANK_FACTOR, Matches
 from .winmodel import WinModel
 
 FORMAT_VERSION = 1
@@ -82,13 +82,15 @@ def pick_model_dict(pm, threshold: float = 0.01) -> dict:
     }
 
 
-def game_counts(m: Matches) -> dict:
-    """Sample sizes the UI uses for confidence badges: games per brawler overall and per map."""
+def game_counts(m: Matches, rank_factor: float = DEFAULT_RANK_FACTOR) -> dict:
+    """Sample sizes the UI uses for confidence badges: games per brawler overall and per map,
+    in all-Masters equivalents (a lower lobby counts as its rank weight)."""
     B, nmap = m.n_brawlers, len(m.maps)
-    per_map = np.zeros((B, nmap), dtype=int)
-    for teams, mp in zip(m.teams, m.map_idx):
+    per_map = np.zeros((B, nmap))
+    for teams, mp, w in zip(m.teams, m.map_idx, m.rank_weights(rank_factor)):
         for b in teams.ravel():
-            per_map[b, mp] += 1
+            per_map[b, mp] += w
+    per_map = np.rint(per_map).astype(int)
     return {"brawler": per_map.sum(1).tolist(), "brawler_map": per_map.tolist()}
 
 

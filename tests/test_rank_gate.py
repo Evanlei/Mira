@@ -178,3 +178,50 @@ class CliSeedTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LobbyRankTests(unittest.TestCase):
+    """Every Ranked match of a crawled player is stored by default, tagged with its lobby rank."""
+
+    def setUp(self):
+        self.conn = mem_db()
+        mixed = entry_3v3(time="20261118T090000.000Z", teams=[
+            [player("#P", "SHELLY", 16000000, trophies=21), player("#M1", "COLT", 16000001, trophies=19),
+             player("#M2", "BULL", 16000002, trophies=17)],
+            [player("#M3", "BROCK", 16000003, trophies=19), player("#M4", "RICO", 16000004, trophies=20),
+             player("#M5", "SPIKE", 16000005, trophies=19)]])
+        masters = entry_3v3(time="20261118T080000.000Z", teams=[
+            [player("#P", "SHELLY", 16000000, trophies=21), player("#M1", "COLT", 16000001, trophies=19),
+             player("#M2", "BULL", 16000002, trophies=22)],
+            [player("#M3", "BROCK", 16000003, trophies=19), player("#M4", "RICO", 16000004, trophies=20),
+             player("#M5", "SPIKE", 16000005, trophies=19)]])
+        self.client = FakeClient({"#P": [mixed, masters, entry_3v3(time="20261118T070000.000Z", btype="ranked")]})
+        db.enqueue_player(self.conn, "#P", crawler.PRIORITY_SEED, seed=True)
+
+    def rows(self):
+        return [tuple(r) for r in self.conn.execute(
+            "SELECT battle_time, battle_type, lobby_rank FROM battles ORDER BY battle_time")]
+
+    def test_default_stores_lower_lobbies_with_rank(self):
+        crawler.crawl(self.conn, self.client, max_players=1, min_rank=19, ranked_only=True,
+                      match_min_rank=crawler.DEFAULT_MATCH_MIN_RANK or None)
+        self.assertEqual(self.rows(), [("2026-11-18T08:00:00Z", "soloRanked", 19),
+                                       ("2026-11-18T09:00:00Z", "soloRanked", 17)])
+
+    def test_cli_default_stores_lower_lobbies(self):
+        self.assertEqual(crawler.DEFAULT_MATCH_MIN_RANK, 0)
+
+    def test_migration_backfills_lobby_rank(self):
+        crawler.crawl(self.conn, self.client, max_players=1, ranked_only=True)
+        self.conn.execute("UPDATE battles SET lobby_rank = NULL")
+        # Simulate an old database: drop the column, then let init_db add and backfill it.
+        self.conn.execute("ALTER TABLE battles DROP COLUMN lobby_rank")
+        db.init_db(self.conn)
+        self.assertEqual([r[2] for r in self.rows()], [19, 17])
+
+    def test_readiness_counts_only_all_masters(self):
+        from mira import readiness
+        crawler.crawl(self.conn, self.client, max_players=1, ranked_only=True)
+        r = readiness.compute(self.conn, target=10)
+        self.assertEqual(sum(m.matches for m in r.pool), 1)
+        self.assertEqual(sum(m.matches for m in readiness.compute(self.conn, min_lobby_rank=16).pool), 2)

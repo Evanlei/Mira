@@ -52,7 +52,7 @@ Global options: `--db PATH` (default `mira.db`) and `--env-file PATH` (default `
 | `--watch` | off | when nobody is due, wait for the next player instead of exiting |
 | `--rate R` | 10 | max requests per second (30 has worked without 429s) |
 | `--ranked-types T` | `soloRanked` | comma-separated `battle.type` values that count as ranked |
-| `--match-min-rank R` | `masters1` (19) | only store ranked matches where all six players are at this rank or higher; `0` turns it off |
+| `--match-min-rank R` | `0` (off) | only store ranked matches where all six players are at this rank or higher |
 | `--all-types` | off | store every 3v3 type; by default only the ranked types are stored |
 | `--min-rank R` | `masters1` (19) | only queue players seen in Ranked at this rank or higher; `0` turns the gate off |
 
@@ -90,10 +90,11 @@ seen at a higher rank, they're queued then. The queue query applies the same gat
 by an earlier ungated crawl are skipped too. The gate only controls who gets crawled: every 3v3
 battle in a crawled log is still stored, subject to the match check below.
 
-**Match check**: a Ranked match is stored only if all six players are at `--match-min-rank` (default
-Masters I) or higher. A match that fails the check isn't stored, but its Masters players are still
-added to the queue. In the first live crawl, about 31% of Ranked matches played by Masters players
-had all six players at Masters or above.
+**Lobby rank**: every Ranked match of a crawled (Masters+) player is stored, with its lowest
+player's rank in `battles.lobby_rank`. Only about 31% of those matches have all six players at
+Masters or above; the rest have some Legendary (or lower) players. Training keeps lobbies from
+Legendary I up and weights them down (below). `--match-min-rank masters1` restores the old
+behaviour of storing all-Masters matches only.
 
 The rank comes from `brawler.trophies`, which in Ranked battles holds the player's rank instead of
 trophies. The assumed encoding is 1–3 Bronze I–III, 4–6 Silver, 7–9 Gold, 10–12 Diamond,
@@ -169,6 +170,11 @@ the crawler itself has no dependencies.
   per-mode). Each group has its own L2 penalty, tuned on the newest 20% of training data.
 - **Weights** (`src/mira/model/patches.py`): matches fade with a 28-day half-life. Matches played
   before a patch changed one of their brawlers count ×0.1. Patches are listed in `data/patches.json`.
+- **Lobby rank**: all-Masters lobbies weigh 1, and each rank step below Masters I multiplies the
+  weight by `--rank-factor` (default 0.5: Legendary III 0.5, II 0.25, I 0.125). Lobbies below
+  `--min-lobby-rank` (default Legendary I) are not loaded. The test set, `readiness` and the
+  baselines use all-Masters matches only, and `evaluate` also reports Mira trained on all-Masters
+  matches only, so you can see whether the lower lobbies help. Try `--rank-factor 0.3` or `0.7`.
 - **Baselines** (`src/mira/model/baselines.py`): their statistics come from training data, and their
   weights are fitted out-of-fold so they aren't overconfident. The DeepDraft-style score rebuilds
   DeepDraft's published method (base + synergy ± counters − role conflict) with fitted weights.
