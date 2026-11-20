@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import threading
@@ -178,7 +179,8 @@ class BrawlStarsClient:
                     attempt += 1
                     continue
                 raise ApiError(f"HTTP {status} for {url}: {message}", status=status, reason=reason) from None
-            except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
+            # http.client.HTTPException covers a body cut off mid-read (IncompleteRead) on a flaky network.
+            except (urllib.error.URLError, TimeoutError, ConnectionError, http.client.HTTPException) as e:
                 if attempt < self.max_retries:
                     self._sleep(self._backoff(attempt))
                     attempt += 1

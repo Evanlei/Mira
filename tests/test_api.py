@@ -99,6 +99,13 @@ class ClientTests(unittest.TestCase):
         client.brawlers()
         self.assertEqual(len(sleeps), 1)
 
+    def test_truncated_body_retried(self):
+        import http.client
+        opener = ScriptedOpener(http.client.IncompleteRead(b"{", 100), {"items": []})
+        client, sleeps = make_client(opener)
+        client.brawlers()
+        self.assertEqual(len(sleeps), 1)
+
     def test_403_is_clear_auth_error(self):
         opener = ScriptedOpener(http_error(403, {"reason": "accessDenied.invalidIp", "message": "Invalid IP"}))
         client, sleeps = make_client(opener)
