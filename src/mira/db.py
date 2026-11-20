@@ -82,6 +82,9 @@ MIGRATIONS = [
     ("players", "is_seed", "INTEGER NOT NULL DEFAULT 0"),
     ("players", "next_due", "REAL"),  # unix seconds; when this player's log should be read again
     ("battles", "lobby_rank", "INTEGER"),  # lowest Ranked rank of the six players; NULL if not ranked
+    ("players", "peak_rank", "INTEGER"),   # highestAllTimeRankedRank from the player's profile
+    ("players", "elo", "INTEGER"),         # rankedElo from the profile
+    ("players", "profile_at", "REAL"),     # unix seconds the profile was read
 ]
 
 RANKED_TYPE = "soloRanked"  # the only type whose brawler.trophies holds a rank
@@ -142,11 +145,13 @@ def next_players(
     recrawl_after: float,
     now: float | None = None,
     min_rank: int | None = None,
+    min_peak: int | None = None,
 ) -> list[str]:
     """Players due for a crawl: highest priority first, then breadth-first by discovery.
 
     With ``min_rank``, non-seed players are only eligible once they've been seen at
-    that Ranked rank or higher.
+    that Ranked rank or higher. With ``min_peak``, players whose profile shows an all-time
+    peak below it are skipped (unknown peaks stay eligible: the crawler reads the profile first).
     """
     now = time.time() if now is None else now
     rows = conn.execute(
@@ -155,10 +160,11 @@ def next_players(
         WHERE status != 'missing'
           AND (last_crawled IS NULL OR MIN(COALESCE(next_due, last_crawled + ?), last_crawled + ?) <= ?)
           AND (? IS NULL OR is_seed = 1 OR max_rank >= ?)
+          AND (? IS NULL OR is_seed = 1 OR peak_rank IS NULL OR peak_rank >= ? OR max_rank >= ?)
         ORDER BY priority DESC, (last_crawled IS NOT NULL), next_due, discovered_at, tag
         LIMIT ?
         """,
-        (recrawl_after, recrawl_after, now, min_rank, min_rank, limit),
+        (recrawl_after, recrawl_after, now, min_rank, min_rank, min_peak, min_peak, min_peak, limit),
     ).fetchall()
     return [r["tag"] for r in rows]
 
@@ -179,6 +185,29 @@ def earliest_due(
 
 
 PRO_RANK = 22  # "Pro", the top Ranked rank
+
+
+def needs_profile(conn: sqlite3.Connection, tag: str, min_peak: int, max_age: float, now: float | None = None) -> bool:
+    """Whether to read this player's profile (peak rank) before their battle log: not a seed,
+    not already seen at ``min_peak`` or higher, and no profile read within ``max_age`` seconds."""
+    now = time.time() if now is None else now
+    row = conn.execute("SELECT is_seed, max_rank, peak_rank, profile_at FROM players WHERE tag = ?", (tag,)).fetchone()
+    if row is None or row["is_seed"]:
+        return False
+    if max(row["max_rank"] or 0, row["peak_rank"] or 0) >= min_peak:
+        return False
+    return row["profile_at"] is None or row["profile_at"] < now - max_age
+
+
+def record_profile(conn: sqlite3.Connection, tag: str, profile: dict, now: float | None = None) -> int | None:
+    """Store the player's all-time peak rank and Elo from /players/{tag}; returns the peak."""
+    now = time.time() if now is None else now
+    peak = profile.get("highestAllTimeRankedRank")
+    conn.execute(
+        "UPDATE players SET peak_rank = ?, elo = ?, profile_at = ? WHERE tag = ?",
+        (peak, profile.get("rankedElo"), now, tag),
+    )
+    return peak
 
 
 def count_pros(conn: sqlite3.Connection, tags: list[str]) -> int:

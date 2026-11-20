@@ -96,6 +96,7 @@ def cmd_crawl(args: argparse.Namespace) -> int:
             workers=args.workers,
             watch=args.watch,
             pro_scrims=not args.no_pro_scrims,
+            min_peak=args.min_peak or None,
         )
     print("Done: " + stats.summary() + f"; {client.request_count} API requests")
     if min_rank:
@@ -215,7 +216,7 @@ def _load_training_data(args: argparse.Namespace):
     except ImportError as e:  # numpy missing
         raise SystemExit(f"error: training needs numpy ({e}). Run `uv sync`.") from None
     conn = _open_db(args)
-    m = dataset.load(conn, min_lobby_rank=args.min_lobby_rank or None)
+    m = dataset.load(conn, min_lobby_rank=args.min_lobby_rank or None, min_peak=args.min_peak or None)
     if len(m) < 200:
         raise SystemExit(f"error: only {len(m)} Ranked matches in {args.db}; crawl more first.")
     plog = patches.load(args.patches)
@@ -496,6 +497,9 @@ def build_parser() -> argparse.ArgumentParser:
                          "before their 25-game log turns over (default: 6)")
     sp.add_argument("--workers", type=int, default=crawler.DEFAULT_WORKERS,
                     help="battle logs fetched in parallel; --rate still caps requests (default: %(default)s)")
+    sp.add_argument("--min-peak", type=_rank_arg, default=crawler.DEFAULT_MIN_PEAK,
+                    help="skip players whose all-time peak rank (read from their profile once a week) is "
+                         "below this; 0 disables (default: masters1 = 19)")
     sp.add_argument("--no-pro-scrims", action="store_true",
                     help="don't store friendly 3v3s where 4+ of the 6 players are pros (Pro rank or seeds)")
     sp.add_argument("--watch", action="store_true",
@@ -541,6 +545,9 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument("--min-lobby-rank", type=_rank_arg, default=16,
                         help="ignore matches whose lowest player is below this rank (default: legendary1 = 16; "
                              "masters1 = 19 trains on all-Masters lobbies only)")
+        sp.add_argument("--min-peak", type=_rank_arg, default=19,
+                        help="a lobby below Masters counts only if all six players have been Masters "
+                             "(all-time peak from their profile, or seen there); 0 disables (default: masters1 = 19)")
         sp.add_argument("--top-boost", type=float, default=1.0,
                         help="weight multiplier per rank step a lobby's average sits above Masters I, up to "
                              "Pro, so games with Masters III and Pro players count more; 1 = off (default: %(default)s)")

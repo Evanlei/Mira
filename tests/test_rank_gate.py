@@ -266,3 +266,63 @@ class ProScrimTests(unittest.TestCase):
         crawler.crawl(self.conn, self.client, max_players=1, min_rank=16, ranked_only=True,
                       match_min_rank=16, pro_scrims=True)
         self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM battles").fetchone()[0], 2)  # #X1 makes the second one 4 pros
+
+
+class PeakGateTests(unittest.TestCase):
+    """After the reset: Legendary players count only if they've been Masters."""
+
+    def setUp(self):
+        self.conn = mem_db()
+        # #LA (now Legendary, peak Masters), #LB (Legendary, never Masters), #MA (Masters now).
+        db.enqueue_player(self.conn, "#LA", crawler.PRIORITY_RANKED, rank=17, ranked=True)
+        db.enqueue_player(self.conn, "#LB", crawler.PRIORITY_RANKED, rank=17, ranked=True)
+        db.enqueue_player(self.conn, "#MA", crawler.PRIORITY_RANKED, rank=20, ranked=True)
+        self.client = FakeClient({t: [] for t in ["#LA", "#LB", "#MA"]}, peaks={"#LA": 20, "#LB": 17, "#MA": 21})
+
+    def crawl(self):
+        return crawler.crawl(self.conn, self.client, min_rank=16, ranked_only=True, match_min_rank=16, min_peak=19)
+
+    def test_profile_read_only_when_needed_and_low_peaks_skipped(self):
+        stats = self.crawl()
+        self.assertEqual(sorted(self.client.profile_calls), ["#LA", "#LB"])  # #MA already seen at Masters
+        self.assertEqual(sorted(self.client.calls), ["#LA", "#MA"])          # #LB's log never read
+        self.assertEqual(stats.players_low_peak, 1)
+        row = self.conn.execute("SELECT status, peak_rank FROM players WHERE tag='#LB'").fetchone()
+        self.assertEqual(tuple(row), ("low_peak", 17))
+        self.assertEqual(self.conn.execute("SELECT peak_rank FROM players WHERE tag='#LA'").fetchone()[0], 20)
+
+    def test_low_peak_players_drop_out_of_the_queue(self):
+        self.crawl()
+        later = time.time() + 30 * 24 * 3600
+        due = db.next_players(self.conn, 10, 3600, now=later, min_rank=16, min_peak=19)
+        self.assertNotIn("#LB", due)
+        self.assertIn("#LA", due)
+
+    def test_profiles_are_not_reread_within_a_week(self):
+        self.crawl()
+        self.assertFalse(db.needs_profile(self.conn, "#LA", 19, crawler.PROFILE_MAX_AGE))
+        self.assertTrue(db.needs_profile(self.conn, "#LA", 19, crawler.PROFILE_MAX_AGE, now=time.time() + 8 * 86400) is False)
+
+    def test_training_keeps_legendary_lobbies_only_of_ex_masters(self):
+        from mira.model import dataset
+        def lobby(time_, tags, ranks):
+            return entry_3v3(time=time_, teams=[
+                [player(tags[0], "SHELLY", 16000000, trophies=ranks[0]), player(tags[1], "COLT", 16000001, trophies=ranks[1]),
+                 player(tags[2], "BULL", 16000002, trophies=ranks[2])],
+                [player(tags[3], "BROCK", 16000003, trophies=ranks[3]), player(tags[4], "RICO", 16000004, trophies=ranks[4]),
+                 player(tags[5], "SPIKE", 16000005, trophies=ranks[5])]])
+        peaks = {"#LA": 20, "#LB": 17, "#MA": 21, "#P2": 19, "#P3": 22, "#P8": 20, "#P9": 19}
+        logs = {"#LA": [
+            lobby("20261119T100000.000Z", ["#LA", "#P2", "#P3", "#P8", "#P9", "#MA"], [17, 19, 20, 19, 19, 20]),  # all ex-Masters
+            lobby("20261119T110000.000Z", ["#LA", "#LB", "#P3", "#P8", "#P9", "#MA"], [17, 17, 20, 19, 19, 20]),  # #LB never Masters
+            lobby("20261119T120000.000Z", ["#MA", "#P2", "#P3", "#P8", "#P9", "#LA"], [19, 19, 20, 19, 19, 19]),  # all-Masters lobby
+        ]}
+        conn = mem_db()
+        for t, pk in peaks.items():
+            db.enqueue_player(conn, t, crawler.PRIORITY_RANKED, rank=17, ranked=True)
+            conn.execute("UPDATE players SET peak_rank = ? WHERE tag = ?", (pk, t))
+        crawler.crawl(conn, FakeClient(logs, peaks=peaks), max_players=1, min_rank=16, ranked_only=True, match_min_rank=16)
+        conn.commit()
+        self.assertEqual(len(dataset.load(conn, min_lobby_rank=16)), 3)
+        m = dataset.load(conn, min_lobby_rank=16, min_peak=19)
+        self.assertEqual(sorted(m.times), ["2026-11-19T10:00:00Z", "2026-11-19T12:00:00Z"])

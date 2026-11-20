@@ -15,8 +15,8 @@ PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 LOG="$HOME/Library/Logs/mira-crawl.log"
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 UV=$(command -v uv || echo "$HOME/.local/bin/uv")
-RATE=${MIRA_RATE:-20}
-WORKERS=${MIRA_WORKERS:-16}
+RATE=${MIRA_RATE:-30}
+WORKERS=${MIRA_WORKERS:-24}
 
 case "${1:-}" in
 install)

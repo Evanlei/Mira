@@ -81,9 +81,13 @@ class Matches:
 
 
 def load(conn: sqlite3.Connection, battle_type: str = RANKED_TYPE,
-         min_lobby_rank: int | None = DEFAULT_MIN_LOBBY) -> Matches:
+         min_lobby_rank: int | None = DEFAULT_MIN_LOBBY, min_peak: int | None = None) -> Matches:
     """All non-draw matches of ``battle_type`` with six known brawlers, oldest first,
-    from lobbies whose lowest rank is at least ``min_lobby_rank`` (None: no filter)."""
+    from lobbies whose lowest rank is at least ``min_lobby_rank`` (None: no filter).
+
+    With ``min_peak``, a lobby below Masters only counts when every player's best known rank
+    (all-time peak from their profile, or the highest rank we've seen them at) reaches it:
+    Legendary games then come only from players who have been Masters."""
     rows = conn.execute(
         """
         SELECT b.battle_id, b.battle_time, b.mode, b.map, b.winning_team, b.lobby_rank,
@@ -91,9 +95,13 @@ def load(conn: sqlite3.Connection, battle_type: str = RANKED_TYPE,
         FROM battles b JOIN battle_players bp USING (battle_id)
         WHERE b.battle_type = ? AND b.is_draw = 0 AND b.winning_team IS NOT NULL
           AND (? IS NULL OR b.lobby_rank >= ?)
+          AND (? IS NULL OR b.lobby_rank >= ? OR NOT EXISTS (
+                SELECT 1 FROM battle_players q LEFT JOIN players p ON p.tag = q.player_tag
+                WHERE q.battle_id = b.battle_id
+                  AND MAX(COALESCE(p.peak_rank, 0), COALESCE(p.max_rank, 0)) < ?))
         ORDER BY b.battle_time, b.battle_id, bp.team, bp.slot
         """,
-        (battle_type, min_lobby_rank, min_lobby_rank),
+        (battle_type, min_lobby_rank, min_lobby_rank, min_peak, min_peak, min_peak),
     ).fetchall()
 
     brawler_index: dict[int, int] = {}

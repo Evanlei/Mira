@@ -37,6 +37,11 @@ DEFAULT_WORKERS = 8
 # Pro scrims: pros practise in friendly rooms, which the battle log reports as type "friendly".
 # A friendly 3v3 is kept only when at least this many of its six players are pros (seen at Pro
 # rank, or listed in the seeds file), so casual friendlies between friends are left out.
+# Peak gate: after a ranked reset most Masters players sit in Legendary, next to players who
+# never reached Masters. A player not seen at Masters yet has their profile read first
+# (highestAllTimeRankedRank); below DEFAULT_MIN_PEAK they're skipped and not crawled.
+DEFAULT_MIN_PEAK = 19  # Masters I
+PROFILE_MAX_AGE = 7 * 24 * 3600
 SCRIM_TYPE = "friendly"
 SCRIM_MIN_PROS = 4
 
@@ -146,6 +151,8 @@ class CrawlStats:
     battles_other_types: int = 0  # 3v3 but not a ranked type, so not stored
     battles_below_rank: int = 0   # ranked, but not all six players at match_min_rank
     scrims_new: int = 0           # friendly 3v3s between pros, stored as type "friendly"
+    profiles_read: int = 0        # player profiles read for the peak gate
+    players_low_peak: int = 0     # skipped: all-time peak below the gate
     players_discovered: int = 0
     players_below_rank: int = 0
     players_unranked_skipped: int = 0
@@ -162,6 +169,8 @@ class CrawlStats:
             + (f" ({self.battles_other_types} non-ranked not stored)" if self.battles_other_types else "")
             + (f" ({self.battles_below_rank} below match min rank not stored)" if self.battles_below_rank else "")
             + (f"; {self.scrims_new} pro scrims" if self.scrims_new else "")
+            + (f"; {self.profiles_read} profiles, {self.players_low_peak} below peak gate skipped"
+               if self.profiles_read else "")
             + f"; queue +{self.players_discovered} players"
             + (f" (skipped {self.players_below_rank} below min rank, "
                f"{self.players_unranked_skipped} from non-ranked games)"
@@ -337,6 +346,7 @@ def crawl(
     workers: int = 1,
     watch: bool = False,
     pro_scrims: bool = False,
+    min_peak: int | None = None,
     sleep: Callable[[float], None] = time.sleep,
     max_idle_sleep: float = 300.0,
 ) -> CrawlStats:
@@ -361,17 +371,34 @@ def crawl(
             return "time limit"
         return None
 
-    def fetch(tag: str) -> list[dict] | BaseException:
+    def fetch(tag: str, profile_first: bool):
+        """(profile or None, battle log | ApiError | None). No log when the peak gate rejects."""
+        profile = None
         try:
-            return client.battlelog(tag)
+            if profile_first:
+                profile = client.player(tag)
+                peak = profile.get("highestAllTimeRankedRank")
+                if peak is not None and peak < min_peak:
+                    return profile, None
+            return profile, client.battlelog(tag)
         except AuthError:
             raise
         except ApiError as e:
-            return e
+            return profile, e
 
     def finish(fut: Future, tag: str) -> None:
         nonlocal last_progress
-        store_log(conn, tag, fut.result(), stats, *opts)
+        profile, entries = fut.result()
+        if profile is not None:
+            stats.profiles_read += 1
+            db.record_profile(conn, tag, profile)
+        if entries is None:
+            now = time.time()
+            db.mark_crawled(conn, tag, "low_peak", now=now, next_due=now + PROFILE_MAX_AGE)
+            conn.commit()
+            stats.players_low_peak += 1
+            return
+        store_log(conn, tag, entries, stats, *opts)
         if progress and stats.players_crawled - last_progress >= progress_every:
             last_progress = stats.players_crawled
             progress(stats)
@@ -399,9 +426,11 @@ def crawl(
                     if room > 0:
                         # Re-select every time so newly found ranked players jump the queue.
                         busy = set(in_flight.values())
-                        for tag in db.next_players(conn, room + len(busy), recrawl_after, min_rank=min_rank):
+                        for tag in db.next_players(conn, room + len(busy), recrawl_after, min_rank=min_rank,
+                                                   min_peak=min_peak):
                             if tag not in busy and room > 0:
-                                in_flight[pool.submit(fetch, tag)] = tag
+                                first = min_peak is not None and db.needs_profile(conn, tag, min_peak, PROFILE_MAX_AGE)
+                                in_flight[pool.submit(fetch, tag, first)] = tag
                                 room -= 1
                 if not in_flight:
                     if reason:

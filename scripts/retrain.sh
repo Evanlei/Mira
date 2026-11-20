@@ -38,12 +38,15 @@ fi
 git -C "$WORK" checkout -q --detach origin/main
 git -C "$WORK" reset -q --hard origin/main
 
-# 4. Sanity check: never replace the live model with one trained on less data.
-new=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['n_matches'])" "$OUT")
-old=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('n_matches', 0))" "$WORK/web/public/model.json" 2>/dev/null || echo 0)
-log "matches: live $old, new $new"
+# 4. Sanity check: never replace the live model with one trained on fewer all-Masters matches.
+#    (The total can shrink on purpose, e.g. when a filter drops lower lobbies; Masters games can't.)
+count() { python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(d.get('n_masters', 0))" "$1" 2>/dev/null || echo 0; }
+total=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['n_matches'])" "$OUT")
+new=$(count "$OUT")
+old=$(count "$WORK/web/public/model.json")
+log "all-Masters matches: live $old, new $new (all lobbies: $total)"
 if [ "$new" -lt "$old" ]; then
-  log "new model has fewer matches than the live one; not deploying"
+  log "new model has fewer all-Masters matches than the live one; not deploying"
   exit 1
 fi
 
@@ -60,10 +63,11 @@ if [ "$DRY" = "--dry-run" ]; then
 fi
 
 git -C "$WORK" add web/public/model.json web/src/engine/parity.fixtures.json
-git -C "$WORK" commit -q -m "Retrain the model on $new Ranked matches (automatic)
+git -C "$WORK" commit -q -m "Retrain the model on $total Ranked matches (automatic)
 
-Daily retrain by scripts/retrain.sh: Legendary I+ lobbies at 0.5 per rank below
-Masters, rank-tier strength terms held tight (L2 1000).
+Daily retrain by scripts/retrain.sh: Legendary I+ lobbies of players who have
+been Masters, at 0.5 per rank below Masters; rank-tier strength terms held
+tight (L2 1000).
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 # If main moved meanwhile, replay the model commit on top and try once more.

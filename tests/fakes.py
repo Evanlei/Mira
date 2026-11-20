@@ -74,11 +74,23 @@ def entry_duels(time: str = "20261118T095000.000Z") -> dict:
 class FakeClient:
     """In-memory stand-in for BrawlStarsClient."""
 
-    def __init__(self, logs: dict[str, list[dict]] | None = None, rankings: dict[str, list[dict]] | None = None):
+    def __init__(self, logs: dict[str, list[dict]] | None = None, rankings: dict[str, list[dict]] | None = None,
+                 peaks: dict[str, int] | None = None):
         self.logs = {normalize_tag(k): v for k, v in (logs or {}).items()}
         self.rankings = rankings or {}
+        self.peaks = {normalize_tag(k): v for k, v in (peaks or {}).items()}
         self.calls: list[str] = []
+        self.profile_calls: list[str] = []
         self.request_count = 0
+
+    def player(self, tag: str) -> dict:
+        tag = normalize_tag(tag)
+        self.profile_calls.append(tag)
+        self.request_count += 1
+        if tag not in self.peaks and tag not in self.logs:
+            raise NotFoundError(f"404 {tag}", status=404)
+        peak = self.peaks.get(tag)
+        return {"tag": tag, "highestAllTimeRankedRank": peak, "rankedElo": 1000 + 100 * (peak or 0)}
 
     def battlelog(self, tag: str) -> list[dict]:
         tag = normalize_tag(tag)
