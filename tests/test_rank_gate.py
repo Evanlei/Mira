@@ -94,6 +94,22 @@ class RankGateTests(unittest.TestCase):
         # Masters gate: only the rank-20 teammate and rank-19 opponent are queued.
         self.assertEqual(self.queued(), {"#P", "#HI", "#0PP1"})
 
+    def test_match_min_rank_only_stores_all_masters_matches(self):
+        all_masters = entry_3v3(time="20261118T080000.000Z", teams=[
+            [player("#P", "SHELLY", 16000000, trophies=21), player("#M1", "COLT", 16000001, trophies=19),
+             player("#M2", "BULL", 16000002, trophies=22)],
+            [player("#M3", "BROCK", 16000003, trophies=19), player("#M4", "RICO", 16000004, trophies=20),
+             player("#M5", "SPIKE", 16000005, trophies=19)]])
+        self.client.logs["#P"].append(all_masters)
+        stats = crawler.crawl(self.conn, self.client, max_players=1, min_rank=19,
+                              ranked_only=True, match_min_rank=19)
+        times = [r[0] for r in self.conn.execute("SELECT battle_time FROM battles")]
+        self.assertEqual(times, ["2026-11-18T08:00:00Z"])
+        self.assertEqual(stats.battles_below_rank, 1)
+        # The mixed-rank match still fed the queue with its Masters players.
+        self.assertTrue({"#HI", "#0PP1", "#M1", "#M5"} <= self.queued())
+        self.assertNotIn("#L0", self.queued())
+
     def test_gate_disabled_queues_everyone(self):
         crawler.crawl(self.conn, self.client, max_players=1, min_rank=None)
         self.assertEqual(len(self.queued()), 11)

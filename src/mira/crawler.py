@@ -98,6 +98,7 @@ class CrawlStats:
     battles_parsed: int = 0
     battles_new: int = 0
     battles_other_types: int = 0  # 3v3 but not a ranked type, so not stored
+    battles_below_rank: int = 0   # ranked, but not all six players at match_min_rank
     players_discovered: int = 0
     players_below_rank: int = 0
     players_unranked_skipped: int = 0
@@ -112,12 +113,20 @@ class CrawlStats:
             f"{self.entries_seen} log entries, {self.battles_parsed} 3v3, "
             f"{self.battles_new} new battles"
             + (f" ({self.battles_other_types} non-ranked not stored)" if self.battles_other_types else "")
+            + (f" ({self.battles_below_rank} below match min rank not stored)" if self.battles_below_rank else "")
             + f"; queue +{self.players_discovered} players"
             + (f" (skipped {self.players_below_rank} below min rank, "
                f"{self.players_unranked_skipped} from non-ranked games)"
                if self.players_below_rank or self.players_unranked_skipped else "")
             + (f" [{self.stop_reason}]" if self.stop_reason else "")
         )
+
+
+def is_match_at_rank(battle, min_rank: int, ranked_types: frozenset[str] = DEFAULT_RANKED_TYPES) -> bool:
+    """True if this is a ranked battle and every player's rank is at least ``min_rank``."""
+    return battle.battle_type in ranked_types and all(
+        p.trophies is not None and p.trophies >= min_rank for p in battle.players
+    )
 
 
 def seed(conn: sqlite3.Connection, client: Client, countries: Iterable[str], limit: int = 200) -> int:
@@ -150,12 +159,16 @@ def crawl_player(
     ranked_types: frozenset[str] = DEFAULT_RANKED_TYPES,
     min_rank: int | None = None,
     ranked_only: bool = False,
+    match_min_rank: int | None = None,
 ) -> None:
     """Fetch one player's log, store new 3v3 battles, and grow the queue.
 
     Without ``min_rank`` everyone in a stored battle is queued. With it, only
     players seen in a Ranked battle at ``min_rank`` or above are queued; everyone
     else's rank is still recorded if they're already known.
+
+    With ``match_min_rank``, a ranked battle is only stored if all six players
+    were at that rank or higher; its players still feed the queue either way.
     """
     try:
         entries = client.battlelog(tag)
@@ -182,9 +195,11 @@ def crawl_player(
         if ranked_only and battle.battle_type not in ranked_types:
             stats.battles_other_types += 1
             continue
-        if db.insert_battle(conn, battle, source_tag=tag):
-            stats.battles_new += 1
         ranked = battle.battle_type in ranked_types
+        if match_min_rank is not None and not is_match_at_rank(battle, match_min_rank, ranked_types):
+            stats.battles_below_rank += 1
+        elif db.insert_battle(conn, battle, source_tag=tag):
+            stats.battles_new += 1
         prio = PRIORITY_RANKED if ranked else PRIORITY_OTHER
         for p in battle.players:
             rank = p.trophies if ranked else None
@@ -235,6 +250,7 @@ def crawl(
     ranked_types: frozenset[str] = DEFAULT_RANKED_TYPES,
     min_rank: int | None = None,
     ranked_only: bool = False,
+    match_min_rank: int | None = None,
     should_stop: Callable[[], bool] = lambda: False,
     progress: Callable[[CrawlStats], None] | None = None,
     progress_every: int = 25,
@@ -256,7 +272,7 @@ def crawl(
         if not batch:
             stats.stop_reason = "queue empty (everyone crawled within the recrawl window)"
             break
-        crawl_player(conn, client, batch[0], stats, ranked_types, min_rank, ranked_only)
+        crawl_player(conn, client, batch[0], stats, ranked_types, min_rank, ranked_only, match_min_rank)
         if progress and stats.players_crawled and stats.players_crawled % progress_every == 0:
             progress(stats)
     return stats

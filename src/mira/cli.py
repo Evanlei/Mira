@@ -90,12 +90,16 @@ def cmd_crawl(args: argparse.Namespace) -> int:
             ranked_types=ranked,
             min_rank=min_rank,
             ranked_only=not args.all_types,
+            match_min_rank=None if args.all_types else (args.match_min_rank or None),
             should_stop=lambda: stop.stopped,
             progress=lambda s: print("  " + s.summary(), flush=True),
         )
     print("Done: " + stats.summary() + f"; {client.request_count} API requests")
     if min_rank:
         print(f"Rank gate: non-seed players need {crawler.rank_name(min_rank)} ({min_rank}) or higher.")
+    if args.match_min_rank and not args.all_types:
+        print(f"Match gate: stored matches have all six players at "
+              f"{crawler.rank_name(args.match_min_rank)} ({args.match_min_rank}) or higher.")
     return 0
 
 
@@ -238,6 +242,9 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--min-rank", type=_rank_arg, default=crawler.DEFAULT_MIN_RANK,
                     help="only queue non-seed players seen in Ranked at this rank or higher: 0-22 or a "
                          "name like legendary1, masters3, pro; 0 disables (default: masters1 = 19)")
+    sp.add_argument("--match-min-rank", type=_rank_arg, default=crawler.DEFAULT_MIN_RANK,
+                    help="only store ranked matches where all six players are at this rank or higher; "
+                         "0 disables (default: masters1 = 19)")
     sp.add_argument("--all-types", action="store_true",
                     help="store every 3v3 battle type (trophy, friendly, ...), not just the ranked types")
     sp.set_defaults(func=cmd_crawl)

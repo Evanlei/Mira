@@ -48,6 +48,7 @@ Global options: `--db PATH` (default `mira.db`) and `--env-file PATH` (default `
 | `--recrawl-hours H` | 6 | a player is due again H hours after their last crawl |
 | `--rate R` | 10 | max requests per second |
 | `--ranked-types T` | `soloRanked` | comma-separated `battle.type` values that count as ranked |
+| `--match-min-rank R` | `masters1` (19) | only store ranked matches where all six players are at this rank or higher; `0` turns it off |
 | `--all-types` | off | store every 3v3 type; by default only the ranked types are stored |
 | `--min-rank R` | `masters1` (19) | only queue players seen in Ranked at this rank or higher; `0` turns the gate off |
 
@@ -70,7 +71,12 @@ battle at `--min-rank` or higher. Players met only in trophy, friendly or event 
 queued. Players below the threshold get their rank recorded but aren't crawled. If they're later
 seen at a higher rank, they're queued then. The queue query applies the same gate, so players added
 by an earlier ungated crawl are skipped too. The gate only controls who gets crawled: every 3v3
-battle in a crawled log is still stored.
+battle in a crawled log is still stored, subject to the match check below.
+
+**Match check**: a Ranked match is stored only if all six players are at `--match-min-rank` (default
+Masters I) or higher. A match that fails the check isn't stored, but its Masters players are still
+added to the queue. In the first live crawl, about 31% of Ranked matches played by Masters players
+had all six players at Masters or above.
 
 The rank comes from `brawler.trophies`, which in Ranked battles holds the player's rank instead of
 trophies. The assumed encoding is 1–3 Bronze I–III, 4–6 Silver, 7–9 Gold, 10–12 Diamond,
