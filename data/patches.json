@@ -1,0 +1,34 @@
+[
+  {
+    "date": "2026-11-03",
+    "kind": "balance",
+    "note": "V70 / November 2026 update",
+    "sources": [
+      "https://timesaver.gg/blog/brawl-stars-balance-changes",
+      "https://trophycoach.com/brawl-stars/guides/brawl-stars-november-2026-update"
+    ],
+    "changes": {
+      "DRACO": "buff", "HANK": "buff", "MELODIE": "buff", "CHUCK": "buff", "DARRYL": "buff",
+      "SHELLY": "buff", "BUSTER": "buff", "ANGELO": "buff", "R-T": "buff",
+      "SHADE": "nerf", "GUS": "nerf", "AMBER": "nerf", "MAX": "nerf", "WENDY": "nerf",
+      "BROCK": "nerf", "RICO": "nerf", "ASH": "nerf", "COLETTE": "nerf", "MAISIE": "nerf",
+      "PIERCE": "nerf", "NORI": "nerf",
+      "ZIGGY": "rework", "SURGE": "rework", "COSMO": "rework", "DAMIAN": "rework",
+      "SQUEAK": "rework", "KIT": "rework"
+    }
+  },
+  {
+    "date": "2026-11-11",
+    "kind": "balance",
+    "note": "maintenance balance pass",
+    "sources": [
+      "https://timesaver.gg/blog/brawl-stars-balance-changes",
+      "https://trophycoach.com/brawl-stars/guides/brawl-stars-november-2026-update"
+    ],
+    "changes": {
+      "MR. P": "nerf", "AMBER": "nerf", "VINCE": "nerf", "CHESTER": "nerf", "LOU": "nerf",
+      "GALE": "nerf", "MANDY": "nerf", "THUNDER FROGS": "nerf", "REY": "nerf",
+      "WENDY": "rework"
+    }
+  }
+]

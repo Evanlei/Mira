@@ -12,3 +12,11 @@ mira = "mira.cli:main"
 [build-system]
 requires = ["uv_build>=0.8,<0.13"]
 build-backend = "uv_build"
+
+# The crawler is standard-library only. Training/evaluation (`mira train`, `mira evaluate`)
+# also needs numpy, which `uv sync` / `uv run` install by default via this group.
+[dependency-groups]
+train = ["numpy>=1.26"]
+
+[tool.uv]
+default-groups = ["train"]

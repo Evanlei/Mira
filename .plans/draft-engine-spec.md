@@ -216,8 +216,14 @@ crawler (Mac) ──► mira.db ──► `mira train` ──► model.json ─�
   2. brawler-on-map win rates only;
   3. a **DeepDraft-style additive score**: base + synergy + counters − role conflict, rebuilt from
      their published description.
-- **MVP passes** if the full model beats baseline 3 on held-out log loss with a 95% bootstrap
-  interval that doesn't overlap, and its calibration error is within ±3 points across deciles.
+- **MVP passes** if the full model beats baseline 3 on held-out log loss, meaning the paired-bootstrap
+  95% interval of the per-match difference excludes 0, and its calibration error (ECE over 10
+  equal-count bins) is ≤ 0.03. Note: at ~2.5k test matches, a coin flip's ECE is already ~0.03 from
+  noise alone, so this check only becomes meaningful at larger test sizes.
+- **Implemented (2026-11-20):** `mira evaluate` and `mira train` (`src/mira/model/`). At 13.4k
+  matches the win model is the best of the four (log loss 0.6898, ECE 0.015), but not yet clearly
+  better than baseline 3. Tuning uses one validation slice and is noise-limited at this size;
+  consider time-ordered K-fold tuning once data allows.
 - **Pick quality checks:**
   - In held-out matches, how often the winning team's comp contained Mira's top-3 suggestion for a
     slot, against chance.

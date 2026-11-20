@@ -136,6 +136,28 @@ Checked against a live crawl on 2026-11-19 (567 matches):
 
 By default `crawl` stores only `soloRanked` matches. Use `--all-types` to keep the rest.
 
+## Training and evaluation
+
+```sh
+uv run mira readiness            # matches per map vs the 3,000-per-map training target
+uv run mira evaluate             # time-split test: win model vs coin / map win rates / DeepDraft-style
+uv run mira train --out model.json
+```
+
+Training needs numpy. It's in the `train` dependency group, which `uv sync` installs by default;
+the crawler itself has no dependencies.
+
+- **Win model** (`src/mira/model/winmodel.py`): regularized logistic regression on brawler strength
+  (global + per mode + per map), same-team synergy pairs and cross-team matchups (each all-modes +
+  per-mode). Each group has its own L2 penalty, tuned on the newest 20% of training data.
+- **Weights** (`src/mira/model/patches.py`): matches fade with a 28-day half-life. Matches played
+  before a patch changed one of their brawlers count ×0.1. Patches are listed in `data/patches.json`.
+- **Baselines** (`src/mira/model/baselines.py`): their statistics come from training data, and their
+  weights are fitted out-of-fold so they aren't overconfident. The DeepDraft-style score rebuilds
+  DeepDraft's published method (base + synergy ± counters − role conflict) with fitted weights.
+- **MVP bar:** the paired-bootstrap 95% interval of log loss vs the DeepDraft-style baseline excludes
+  0, and calibration error is at most 0.03.
+
 ## Tests
 
 ```sh

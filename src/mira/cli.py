@@ -206,6 +206,70 @@ def cmd_readiness(args: argparse.Namespace) -> int:
     return 0
 
 
+def _load_training_data(args: argparse.Namespace):
+    try:
+        from .model import dataset, patches
+    except ImportError as e:  # numpy missing
+        raise SystemExit(f"error: training needs numpy ({e}). Run `uv sync`.") from None
+    conn = _open_db(args)
+    m = dataset.load(conn)
+    if len(m) < 200:
+        raise SystemExit(f"error: only {len(m)} Ranked matches in {args.db}; crawl more first.")
+    plog = patches.load(args.patches)
+    unknown = patches.unknown_names(plog, set(m.brawler_names) | {
+        r[0] for r in conn.execute("SELECT name FROM brawlers")})
+    if unknown:
+        print(f"warning: {args.patches} names not found in the brawler list: {', '.join(unknown)}", file=sys.stderr)
+    return m, plog
+
+
+def cmd_evaluate(args: argparse.Namespace) -> int:
+    from .model import evaluate
+
+    m, plog = _load_training_data(args)
+    print(f"Evaluating on {len(m):,} all-Masters Ranked matches ({m.times[0]} .. {m.times[-1]}), "
+          f"{len(plog)} patches in {args.patches}.")
+    if not args.no_tune:
+        print("Tuning L2 strengths (coordinate descent on the newest 20% of training matches)...", flush=True)
+    r = evaluate.run(m, plog, test_days=args.test_days, half_life_days=args.half_life,
+                     pre_patch_factor=args.pre_patch_factor, tune=not args.no_tune)
+    print(f"\nTest split: {r.split}. Train {r.n_train:,} / test {r.n_test:,} matches.")
+    print("Chosen L2: " + ", ".join(f"{k}={v:g}" for k, v in r.l2.items()))
+    w = max(len(s.name) for s in r.scores)
+    print(f"\n  {'model'.ljust(w)}  log loss   Brier  accuracy  calib. err")
+    for s in r.scores:
+        print(f"  {s.name.ljust(w)}  {s.log_loss:8.4f}  {s.brier:6.4f}  {s.accuracy:8.1%}  {s.ece:10.3f}")
+    print("\n  Mira vs baseline: mean log-loss difference per match (negative = Mira better), 95% CI")
+    for name, d, lo, hi in r.comparisons:
+        verdict = "better" if hi < 0 else ("worse" if lo > 0 else "no clear difference")
+        print(f"  {name.ljust(w)}  {d:+.4f}  [{lo:+.4f}, {hi:+.4f}]  {verdict}")
+    print("\nMVP bar (spec §8): " + ("PASS" if r.passes else "not met: " + "; ".join(r.reasons)))
+    return 0
+
+
+def cmd_train(args: argparse.Namespace) -> int:
+    from .model import evaluate, export
+    from .model.winmodel import DEFAULT_L2, WinModel
+
+    m, plog = _load_training_data(args)
+    w = evaluate.weights_for(m, plog, args.half_life, args.pre_patch_factor)
+    if args.no_tune:
+        l2 = dict(DEFAULT_L2)
+    else:
+        print("Tuning L2 strengths on the newest 20% of matches...", flush=True)
+        l2 = evaluate.tune_l2(m, w)[0]
+    print("L2: " + ", ".join(f"{k}={v:g}" for k, v in l2.items()))
+    model = WinModel.fit(m, w, l2)
+    data = export.to_dict(model, m, export.game_counts(m), extra={
+        "patches": [{"date": p.date, "changes": p.changes} for p in plog],
+        "weighting": {"half_life_days": args.half_life, "pre_patch_factor": args.pre_patch_factor},
+    })
+    size = export.write(args.out, data)
+    print(f"Wrote {args.out} ({size / 1e6:.2f} MB) from {len(m):,} matches. "
+          "Run `mira evaluate` for held-out accuracy.")
+    return 0
+
+
 def cmd_export(args: argparse.Namespace) -> int:
     conn = _open_db(args)
     where, params = ("WHERE b.battle_type = ?", [args.type]) if args.type else ("", [])
@@ -290,6 +354,25 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--pool-days", type=int, default=readiness.DEFAULT_POOL_DAYS,
                     help="a map is in the current pool if played in this many days (default: %(default)s)")
     sp.set_defaults(func=cmd_readiness)
+
+    def model_args(sp):
+        sp.add_argument("--patches", default="data/patches.json", help="balance patch log (default: %(default)s)")
+        sp.add_argument("--half-life", type=float, default=28.0,
+                        help="days for a match's weight to halve (default: %(default)s)")
+        sp.add_argument("--pre-patch-factor", type=float, default=0.1,
+                        help="weight multiplier for matches played before a patch changed one of their "
+                             "brawlers (default: %(default)s)")
+        sp.add_argument("--no-tune", action="store_true", help="skip the L2 grid search; use defaults")
+
+    sp = sub.add_parser("evaluate", help="time-split test of the win model vs baselines")
+    model_args(sp)
+    sp.add_argument("--test-days", type=float, default=7.0, help="test on the newest N days (default: 7)")
+    sp.set_defaults(func=cmd_evaluate)
+
+    sp = sub.add_parser("train", help="fit the win model on all data and write model.json")
+    model_args(sp)
+    sp.add_argument("--out", default="model.json", help="output path (default: %(default)s)")
+    sp.set_defaults(func=cmd_train)
 
     sp = sub.add_parser("export", help="write one CSV row per match")
     sp.add_argument("--out", default="matches.csv", help="output path, or - for stdout")
