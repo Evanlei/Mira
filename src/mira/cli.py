@@ -9,7 +9,7 @@ import sqlite3
 import sys
 from typing import Sequence
 
-from . import crawler, db
+from . import crawler, db, readiness
 from .api import ApiError, AuthError, BrawlStarsClient, load_token
 
 EXPORT_HEADER = [
@@ -178,6 +178,34 @@ def cmd_stats(args: argparse.Namespace) -> int:
     return 0
 
 
+def _bar(fraction: float, width: int = 20) -> str:
+    filled = round(fraction * width)
+    return "#" * filled + "." * (width - filled)
+
+
+def cmd_readiness(args: argparse.Namespace) -> int:
+    conn = _open_db(args)
+    r = readiness.compute(conn, target=args.target, pool_days=args.pool_days)
+    if r.reference_time is None:
+        print("No Ranked matches yet: run `mira crawl` first.")
+        return 0
+    status = "READY to train" if r.ready else "not ready"
+    done = sum(m.matches >= r.target for m in r.pool)
+    print(f"{status}: {done}/{len(r.pool)} maps in the current pool have >= {r.target} all-Masters matches.")
+    print(f"Pool = maps played in the {r.pool_days} days before the newest match ({r.reference_time}).")
+    print(f"Overall {r.overall_progress:.0%}; {r.total_needed:,} more matches needed on the thin maps.\n")
+    w_mode = max(len(m.mode or "-") for m in r.pool)
+    w_map = max(len(m.map or "-") for m in r.pool)
+    print(f"  {'mode'.ljust(w_mode)}  {'map'.ljust(w_map)}  {'matches':>7}  progress")
+    for m in r.pool:  # thinnest first
+        print(f"  {(m.mode or '-').ljust(w_mode)}  {(m.map or '-').ljust(w_map)}  {m.matches:>7,}  "
+              f"{_bar(m.progress(r.target))} {m.progress(r.target):>4.0%}")
+    if r.retired:
+        n = sum(m.matches for m in r.retired)
+        print(f"\n  {len(r.retired)} map(s) with {n:,} matches are no longer in the pool (kept, not counted).")
+    return 0
+
+
 def cmd_export(args: argparse.Namespace) -> int:
     conn = _open_db(args)
     where, params = ("WHERE b.battle_type = ?", [args.type]) if args.type else ("", [])
@@ -255,6 +283,13 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--min-rank", type=_rank_arg, default=crawler.DEFAULT_MIN_RANK,
                     help="threshold used in the rank tables (default: masters1 = 19)")
     sp.set_defaults(func=cmd_stats)
+
+    sp = sub.add_parser("readiness", help="matches per map in the current Ranked pool vs the training target")
+    sp.add_argument("--target", type=int, default=readiness.DEFAULT_TARGET,
+                    help="matches needed per map (default: %(default)s)")
+    sp.add_argument("--pool-days", type=int, default=readiness.DEFAULT_POOL_DAYS,
+                    help="a map is in the current pool if played in this many days (default: %(default)s)")
+    sp.set_defaults(func=cmd_readiness)
 
     sp = sub.add_parser("export", help="write one CSV row per match")
     sp.add_argument("--out", default="matches.csv", help="output path, or - for stdout")
