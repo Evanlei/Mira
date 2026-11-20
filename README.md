@@ -29,6 +29,8 @@ uv run mira init                              # create mira.db
 uv run mira seed --tags-file pros.txt         # queue hand-picked pro players (+ brawler list)
 uv run mira seed --country global             # optional: also queue a trophy leaderboard
 uv run mira crawl --minutes 30                # or --players 500; Ctrl-C stops cleanly
+uv run mira crawl --watch --rate 20           # run nonstop, recrawling players as they come due
+scripts/crawl-service.sh install              # same, as a macOS background job (see below)
 uv run mira crawl --min-rank legendary1       # looser rank gate (default masters1)
 uv run mira crawl --all-types                 # also store trophy/friendly/event 3v3s
 uv run mira stats                             # counts by battle type, mode, map, brawler
@@ -45,12 +47,27 @@ Global options: `--db PATH` (default `mira.db`) and `--env-file PATH` (default `
 | --- | --- | --- |
 | `--players N` | none | stop after N players |
 | `--minutes M` | none | stop after M minutes |
-| `--recrawl-hours H` | 6 | a player is due again H hours after their last crawl |
-| `--rate R` | 10 | max requests per second |
+| `--recrawl-hours H` | 6 | longest wait before a player is due again; active players come due sooner (below) |
+| `--workers N` | 8 | battle logs fetched in parallel; `--rate` still caps the total |
+| `--watch` | off | when nobody is due, wait for the next player instead of exiting |
+| `--rate R` | 10 | max requests per second (30 has worked without 429s) |
 | `--ranked-types T` | `soloRanked` | comma-separated `battle.type` values that count as ranked |
 | `--match-min-rank R` | `masters1` (19) | only store ranked matches where all six players are at this rank or higher; `0` turns it off |
 | `--all-types` | off | store every 3v3 type; by default only the ranked types are stored |
 | `--min-rank R` | `masters1` (19) | only queue players seen in Ranked at this rank or higher; `0` turns the gate off |
+
+### Keeping up with players
+
+The API returns only a player's last 25 games, and an active Masters player fills that in
+1.5–3.5 hours, so a fixed 6-hour recrawl loses most of their games. After each crawl the
+player's next visit is set from the pace of the games in their log: 70% of the time 25 new
+games would take, plus half the time they've been idle. It is never less than 20 minutes and
+never more than `--recrawl-hours`.
+
+`scripts/crawl-service.sh install` runs `mira crawl --watch --rate 20 --workers 16` under
+launchd: it starts at login, restarts if it exits (5 minutes after a failure such as a 403
+from a new IP) and logs to `~/Library/Logs/mira-crawl.log`. `status`, `log` and `uninstall`
+do what they say. The Mac has to be awake and on a whitelisted IP.
 
 ## Seeding and the rank gate
 

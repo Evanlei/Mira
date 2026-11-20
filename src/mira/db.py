@@ -80,6 +80,7 @@ def connect(path: str | Path = DEFAULT_DB) -> sqlite3.Connection:
 MIGRATIONS = [
     ("players", "max_rank", "INTEGER"),
     ("players", "is_seed", "INTEGER NOT NULL DEFAULT 0"),
+    ("players", "next_due", "REAL"),  # unix seconds; when this player's log should be read again
 ]
 
 
@@ -145,27 +146,47 @@ def next_players(
         """
         SELECT tag FROM players
         WHERE status != 'missing'
-          AND (last_crawled IS NULL OR last_crawled <= ?)
+          AND (last_crawled IS NULL OR MIN(COALESCE(next_due, last_crawled + ?), last_crawled + ?) <= ?)
           AND (? IS NULL OR is_seed = 1 OR max_rank >= ?)
-        ORDER BY priority DESC, (last_crawled IS NOT NULL), discovered_at, tag
+        ORDER BY priority DESC, (last_crawled IS NOT NULL), next_due, discovered_at, tag
         LIMIT ?
         """,
-        (now - recrawl_after, min_rank, min_rank, limit),
+        (recrawl_after, recrawl_after, now, min_rank, min_rank, limit),
     ).fetchall()
     return [r["tag"] for r in rows]
 
 
+def earliest_due(
+    conn: sqlite3.Connection, recrawl_after: float, min_rank: int | None = None
+) -> float | None:
+    """When the next crawled player becomes due again (unix seconds), or None if nobody will."""
+    row = conn.execute(
+        """
+        SELECT MIN(MIN(COALESCE(next_due, last_crawled + ?), last_crawled + ?)) FROM players
+        WHERE status != 'missing' AND last_crawled IS NOT NULL
+          AND (? IS NULL OR is_seed = 1 OR max_rank >= ?)
+        """,
+        (recrawl_after, recrawl_after, min_rank, min_rank),
+    ).fetchone()
+    return row[0]
+
+
 def mark_crawled(
-    conn: sqlite3.Connection, tag: str, status: str, error: str | None = None, now: float | None = None
+    conn: sqlite3.Connection,
+    tag: str,
+    status: str,
+    error: str | None = None,
+    now: float | None = None,
+    next_due: float | None = None,
 ) -> None:
     now = time.time() if now is None else now
     conn.execute(
         """
         UPDATE players
-        SET status = ?, last_crawled = ?, crawl_count = crawl_count + 1, last_error = ?
+        SET status = ?, last_crawled = ?, crawl_count = crawl_count + 1, last_error = ?, next_due = ?
         WHERE tag = ?
         """,
-        (status, now, error, tag),
+        (status, now, error, next_due, tag),
     )
 
 

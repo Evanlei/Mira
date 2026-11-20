@@ -93,6 +93,8 @@ def cmd_crawl(args: argparse.Namespace) -> int:
             match_min_rank=None if args.all_types else (args.match_min_rank or None),
             should_stop=lambda: stop.stopped,
             progress=lambda s: print("  " + s.summary(), flush=True),
+            workers=args.workers,
+            watch=args.watch,
         )
     print("Done: " + stats.summary() + f"; {client.request_count} API requests")
     if min_rank:
@@ -456,7 +458,13 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("crawl", help="crawl battle logs breadth-first")
     sp.add_argument("--players", type=int, help="stop after crawling this many players")
     sp.add_argument("--minutes", type=float, help="stop after this many minutes")
-    sp.add_argument("--recrawl-hours", type=float, default=6.0, help="recrawl a player after (default: 6)")
+    sp.add_argument("--recrawl-hours", type=float, default=6.0,
+                    help="longest wait before recrawling a player; active players are recrawled sooner, "
+                         "before their 25-game log turns over (default: 6)")
+    sp.add_argument("--workers", type=int, default=crawler.DEFAULT_WORKERS,
+                    help="battle logs fetched in parallel; --rate still caps requests (default: %(default)s)")
+    sp.add_argument("--watch", action="store_true",
+                    help="run until stopped: when nobody is due, wait for the next player instead of exiting")
     sp.add_argument("--rate", type=float, default=10.0, help="max API requests per second (default: 10)")
     sp.add_argument("--ranked-types", default=",".join(sorted(crawler.DEFAULT_RANKED_TYPES)),
                     help="comma-separated battle.type values that count as ranked (default: %(default)s)")

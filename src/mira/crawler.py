@@ -5,7 +5,9 @@ from __future__ import annotations
 import signal
 import sqlite3
 import time
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Callable, Iterable, Protocol
 
 from . import db
@@ -21,6 +23,16 @@ PRIORITY_OTHER = 1
 # CLI; check `mira stats` to confirm what the API actually returns.
 DEFAULT_RANKED_TYPES = frozenset({"soloRanked"})
 DEFAULT_RECRAWL_SECONDS = 6 * 3600
+
+# The API only returns a player's last 25 games, and an active Masters player fills that
+# in 1.5-3.5 hours. So each player is re-read before their log turns over: the interval
+# is a fraction of the time they took to play their visible games, never shorter than
+# MIN_RECRAWL_SECONDS nor longer than the --recrawl-hours cap.
+LOG_SIZE = 25
+MIN_RECRAWL_SECONDS = 20 * 60
+TURNOVER_FRACTION = 0.7
+IDLE_FRACTION = 0.5
+DEFAULT_WORKERS = 8
 
 # In Ranked battles the API puts the player's rank in brawler.trophies instead of
 # trophies. Assumed encoding (verify with `mira stats`): 1-3 Bronze I-III, 4-6 Silver,
@@ -81,6 +93,29 @@ def read_tags_file(path: str) -> tuple[list[tuple[str, str | None]], int]:
                 continue
             out.append((tag, rest.strip() or None))
     return out, skipped
+
+
+def _battle_epoch(value: str) -> float | None:
+    """'20261120T162800.000Z' -> unix seconds."""
+    try:
+        return datetime.strptime(value[:15], "%Y%m%dT%H%M%S").replace(tzinfo=timezone.utc).timestamp()
+    except (TypeError, ValueError):
+        return None
+
+
+def recrawl_interval(entries: list[dict], now: float, cap: float) -> float:
+    """Seconds until this player's log should be read again.
+
+    Estimates how long until LOG_SIZE new games push out the newest one we just saw,
+    from the pace of the games in the log, and backs off for players who've gone idle.
+    """
+    times = sorted(t for t in (_battle_epoch(e.get("battleTime", "")) for e in entries) if t is not None)
+    if len(times) < 2:
+        return cap
+    span = max(60.0, times[-1] - times[0])
+    turnover = (LOG_SIZE - 1) * span / (len(times) - 1)
+    idle = max(0.0, now - times[-1])
+    return max(MIN_RECRAWL_SECONDS, min(cap, TURNOVER_FRACTION * turnover + IDLE_FRACTION * idle))
 
 
 class Client(Protocol):
@@ -160,6 +195,7 @@ def crawl_player(
     min_rank: int | None = None,
     ranked_only: bool = False,
     match_min_rank: int | None = None,
+    recrawl_after: float = DEFAULT_RECRAWL_SECONDS,
 ) -> None:
     """Fetch one player's log, store new 3v3 battles, and grow the queue.
 
@@ -171,7 +207,29 @@ def crawl_player(
     were at that rank or higher; its players still feed the queue either way.
     """
     try:
-        entries = client.battlelog(tag)
+        entries: list[dict] | BaseException = client.battlelog(tag)
+    except AuthError:
+        raise
+    except ApiError as e:
+        entries = e
+    store_log(conn, tag, entries, stats, ranked_types, min_rank, ranked_only, match_min_rank, recrawl_after)
+
+
+def store_log(
+    conn: sqlite3.Connection,
+    tag: str,
+    entries: list[dict] | BaseException,
+    stats: CrawlStats,
+    ranked_types: frozenset[str] = DEFAULT_RANKED_TYPES,
+    min_rank: int | None = None,
+    ranked_only: bool = False,
+    match_min_rank: int | None = None,
+    recrawl_after: float = DEFAULT_RECRAWL_SECONDS,
+) -> None:
+    """Store one fetched log (or record why fetching it failed). See crawl_player."""
+    try:
+        if isinstance(entries, BaseException):
+            raise entries
     except NotFoundError:
         db.mark_crawled(conn, tag, "missing", "404")
         conn.commit()
@@ -213,7 +271,8 @@ def crawl_player(
                 stats.players_below_rank += 1
             else:
                 stats.players_unranked_skipped += 1
-    db.mark_crawled(conn, tag, "done")
+    now = time.time()
+    db.mark_crawled(conn, tag, "done", now=now, next_due=now + recrawl_interval(entries, now, recrawl_after))
     conn.commit()
     stats.players_discovered += conn.execute("SELECT COUNT(*) FROM players").fetchone()[0] - before
     stats.players_crawled += 1
@@ -254,25 +313,93 @@ def crawl(
     should_stop: Callable[[], bool] = lambda: False,
     progress: Callable[[CrawlStats], None] | None = None,
     progress_every: int = 25,
+    workers: int = 1,
+    watch: bool = False,
+    sleep: Callable[[float], None] = time.sleep,
+    max_idle_sleep: float = 300.0,
 ) -> CrawlStats:
+    """Crawl due players until a limit is hit or nobody is due.
+
+    ``workers`` > 1 fetches logs on that many threads (the client's rate limit still
+    applies); all database writes stay on this thread. With ``watch``, an empty queue
+    means wait for the next player to come due instead of stopping.
+    """
     stats = CrawlStats()
     deadline = None if max_minutes is None else time.monotonic() + max_minutes * 60
-    while True:
+    opts = (ranked_types, min_rank, ranked_only, match_min_rank, recrawl_after)
+    in_flight: dict[Future, str] = {}
+    last_progress = 0
+
+    def limit_reason() -> str | None:
         if should_stop():
-            stats.stop_reason = "interrupted"
-            break
-        if max_players is not None and stats.players_crawled >= max_players:
-            stats.stop_reason = "player limit"
-            break
+            return "interrupted"
+        if max_players is not None and stats.players_crawled + len(in_flight) >= max_players:
+            return "player limit"
         if deadline is not None and time.monotonic() >= deadline:
-            stats.stop_reason = "time limit"
-            break
-        # Re-select every iteration so newly found ranked players jump the queue.
-        batch = db.next_players(conn, 1, recrawl_after, min_rank=min_rank)
-        if not batch:
-            stats.stop_reason = "queue empty (everyone crawled within the recrawl window)"
-            break
-        crawl_player(conn, client, batch[0], stats, ranked_types, min_rank, ranked_only, match_min_rank)
-        if progress and stats.players_crawled and stats.players_crawled % progress_every == 0:
+            return "time limit"
+        return None
+
+    def fetch(tag: str) -> list[dict] | BaseException:
+        try:
+            return client.battlelog(tag)
+        except AuthError:
+            raise
+        except ApiError as e:
+            return e
+
+    def finish(fut: Future, tag: str) -> None:
+        nonlocal last_progress
+        store_log(conn, tag, fut.result(), stats, *opts)
+        if progress and stats.players_crawled - last_progress >= progress_every:
+            last_progress = stats.players_crawled
             progress(stats)
+
+    def idle_wait() -> None:
+        due = db.earliest_due(conn, recrawl_after, min_rank=min_rank)
+        pause = max_idle_sleep if due is None else min(max_idle_sleep, max(1.0, due - time.time()))
+        if deadline is not None:
+            pause = min(pause, max(0.0, deadline - time.monotonic()))
+        end = time.monotonic() + pause
+        while time.monotonic() < end and not should_stop():
+            sleep(min(1.0, end - time.monotonic()))
+
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+        try:
+            while True:
+                reason = limit_reason()
+                if reason and not (reason == "player limit" and in_flight):
+                    stats.stop_reason = stats.stop_reason or reason
+                    break
+                if not reason:
+                    room = max(1, workers) - len(in_flight)
+                    if max_players is not None:
+                        room = min(room, max_players - stats.players_crawled - len(in_flight))
+                    if room > 0:
+                        # Re-select every time so newly found ranked players jump the queue.
+                        busy = set(in_flight.values())
+                        for tag in db.next_players(conn, room + len(busy), recrawl_after, min_rank=min_rank):
+                            if tag not in busy and room > 0:
+                                in_flight[pool.submit(fetch, tag)] = tag
+                                room -= 1
+                if not in_flight:
+                    if reason:
+                        stats.stop_reason = reason
+                        break
+                    if not watch:
+                        stats.stop_reason = "queue empty (everyone crawled within the recrawl window)"
+                        break
+                    idle_wait()
+                    continue
+                done, _ = wait(in_flight, timeout=1.0, return_when=FIRST_COMPLETED)
+                for fut in done:
+                    finish(fut, in_flight.pop(fut))
+        finally:
+            # Store logs already fetched rather than wasting those requests.
+            for fut in list(in_flight):
+                if fut.cancel():
+                    continue
+                try:
+                    finish(fut, in_flight[fut])
+                except AuthError:
+                    pass
     return stats

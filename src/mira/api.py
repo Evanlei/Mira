@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -120,16 +121,23 @@ class BrawlStarsClient:
         self._sleep = sleep
         self._clock = clock
         self._last_request: float | None = None
+        self._lock = threading.Lock()  # the crawler calls get() from several threads
         self.request_count = 0
 
     # -- low level -----------------------------------------------------------
 
     def _throttle(self) -> None:
-        if self._last_request is not None and self.min_interval > 0:
-            wait = self.min_interval - (self._clock() - self._last_request)
-            if wait > 0:
-                self._sleep(wait)
-        self._last_request = self._clock()
+        # Reserve the next send slot under the lock, then sleep outside it, so threads
+        # are spaced min_interval apart without blocking each other's sleeps.
+        with self._lock:
+            now = self._clock()
+            wait = 0.0
+            if self._last_request is not None and self.min_interval > 0:
+                wait = max(0.0, self.min_interval - (now - self._last_request))
+            self._last_request = now + wait
+            self.request_count += 1
+        if wait > 0:
+            self._sleep(wait)
 
     def _backoff(self, attempt: int) -> float:
         return min(self.backoff_cap, self.backoff_base * (2 ** attempt))
@@ -143,7 +151,6 @@ class BrawlStarsClient:
         attempt = 0
         while True:
             self._throttle()
-            self.request_count += 1
             req = urllib.request.Request(url, headers=headers, method="GET")
             try:
                 with self._open(req, timeout=self.timeout) as resp:
