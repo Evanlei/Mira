@@ -9,7 +9,7 @@ import numpy as np
 
 RANKED_TYPE = "soloRanked"
 MASTERS = 19             # Masters I: lobbies at or above this get full weight and form the test set
-DEFAULT_MIN_LOBBY = 16   # Legendary I: lower lobbies are not loaded at all
+DEFAULT_MIN_LOBBY = MASTERS  # lower lobbies are not loaded at all
 DEFAULT_RANK_FACTOR = 0.5  # weight multiplier per rank step a lobby sits below MASTERS
 
 

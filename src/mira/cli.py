@@ -486,8 +486,7 @@ def build_parser() -> argparse.ArgumentParser:
                          "name like legendary1, masters3, pro; 0 disables (default: masters1 = 19)")
     sp.add_argument("--match-min-rank", type=_rank_arg, default=crawler.DEFAULT_MATCH_MIN_RANK,
                     help="only store ranked matches where all six players are at this rank or higher; "
-                         "0 (default) stores every Ranked match of the crawled players, and training "
-                         "weights lower lobbies down")
+                         "0 stores every Ranked match of the crawled players (default: masters1 = 19)")
     sp.add_argument("--all-types", action="store_true",
                     help="store every 3v3 battle type (trophy, friendly, ...), not just the ranked types")
     sp.set_defaults(func=cmd_crawl)
@@ -514,11 +513,12 @@ def build_parser() -> argparse.ArgumentParser:
                         help="weight multiplier for matches played before a patch changed one of their "
                              "brawlers (default: %(default)s)")
         sp.add_argument("--no-tune", action="store_true", help="skip the L2 grid search; use defaults")
-        sp.add_argument("--min-lobby-rank", type=_rank_arg, default=16,
-                        help="ignore matches whose lowest player is below this rank (default: legendary1 = 16)")
+        sp.add_argument("--min-lobby-rank", type=_rank_arg, default=19,
+                        help="ignore matches whose lowest player is below this rank (default: masters1 = 19, "
+                             "i.e. all-Masters lobbies only)")
         sp.add_argument("--rank-factor", type=float, default=0.5,
-                        help="weight multiplier per rank step a lobby sits below Masters I; all-Masters "
-                             "lobbies weigh 1, and 0 trains on all-Masters only (default: %(default)s)")
+                        help="with --min-lobby-rank below 19: weight multiplier per rank step a lobby sits "
+                             "below Masters I (default: %(default)s)")
 
     sp = sub.add_parser("evaluate", help="time-split test of the win model vs baselines")
     model_args(sp)

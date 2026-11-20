@@ -202,14 +202,15 @@ class LobbyRankTests(unittest.TestCase):
         return [tuple(r) for r in self.conn.execute(
             "SELECT battle_time, battle_type, lobby_rank FROM battles ORDER BY battle_time")]
 
-    def test_default_stores_lower_lobbies_with_rank(self):
+    def test_default_stores_only_all_masters_lobbies(self):
         crawler.crawl(self.conn, self.client, max_players=1, min_rank=19, ranked_only=True,
-                      match_min_rank=crawler.DEFAULT_MATCH_MIN_RANK or None)
+                      match_min_rank=crawler.DEFAULT_MATCH_MIN_RANK)
+        self.assertEqual(self.rows(), [("2026-11-18T08:00:00Z", "soloRanked", 19)])
+
+    def test_lower_lobbies_stored_with_rank_when_gate_off(self):
+        crawler.crawl(self.conn, self.client, max_players=1, min_rank=19, ranked_only=True, match_min_rank=None)
         self.assertEqual(self.rows(), [("2026-11-18T08:00:00Z", "soloRanked", 19),
                                        ("2026-11-18T09:00:00Z", "soloRanked", 17)])
-
-    def test_cli_default_stores_lower_lobbies(self):
-        self.assertEqual(crawler.DEFAULT_MATCH_MIN_RANK, 0)
 
     def test_migration_backfills_lobby_rank(self):
         crawler.crawl(self.conn, self.client, max_players=1, ranked_only=True)
