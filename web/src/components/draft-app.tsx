@@ -150,30 +150,25 @@ function Drafter({ model }: { model: Model }) {
 
       <div className="mx-auto w-full max-w-[1440px] flex-1 px-5 pt-6 pb-[max(32px,env(safe-area-inset-bottom))] lg:px-12 lg:pt-8">
         {m === null || mp === null ? (
-          <div className="mx-auto max-w-3xl pt-4 sm:pt-14">
-            <header className="enter flex flex-col-reverse gap-8 sm:flex-row sm:items-end sm:justify-between">
-              <div className="space-y-4">
-                <h1 className="text-4xl leading-tight tracking-tight sm:text-5xl">
-                  <span className="font-extrabold">Mira</span> <span className="text-muted">(draft coach)</span>
-                </h1>
-                <p className="max-w-xl text-[17px] leading-relaxed text-foreground/90 sm:text-xl">
-                  Pick a map and I’ll suggest your best Brawl Stars Ranked picks and bans, learned from{" "}
-                  <strong className="tabular">{games.toLocaleString()} Masters games</strong>.
-                </p>
+          <div className="enter">
+            <p className="text-lg tracking-tight">
+              <span className="font-extrabold">Mira</span> <span className="text-muted">(draft coach)</span>
+            </p>
+            <main className="mx-auto flex max-w-2xl flex-col items-center pt-10 text-center sm:pt-16">
+              <div title={`Most played: ${featuredLabel(model, featured)}`}>
+                <Fan model={model} picks={featured} size={72} />
               </div>
-              <div className="shrink-0 ps-2 pt-2 sm:pb-2" title={`Most played: ${featuredLabel(model, featured)}`}>
-                <Fan model={model} picks={featured} size={60} />
-              </div>
-            </header>
-            <main className="mt-10">
-              <section className="card enter enter-1 rounded-[22px] p-4 sm:p-5">
-                <div className="mb-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-                  <h2 className="text-lg font-bold tracking-tight">Choose your map</h2>
-                  <FirstPick weFirst={draft.weFirst} onChange={setFirst} disabled={started} />
-                </div>
+              <h1 className="mt-8 text-4xl font-medium tracking-tight text-balance sm:text-5xl">Which map are you on?</h1>
+              <p className="mt-4 max-w-md text-[15px] leading-relaxed text-pretty text-muted">
+                I’ll suggest your best Ranked picks and bans, learned from{" "}
+                <strong className="tabular font-semibold text-foreground">{games.toLocaleString()} Masters games</strong>.
+              </p>
+              <div className="enter enter-1 mt-8 w-full text-start">
                 <MapGrid model={model} onPick={(i) => commit({ ...EMPTY, map: i, weFirst: draft.weFirst })} />
-              </section>
-
+              </div>
+              <div className="enter enter-2 mt-8">
+                <FirstPick weFirst={draft.weFirst} onChange={setFirst} disabled={started} />
+              </div>
             </main>
           </div>
         ) : (
@@ -236,7 +231,7 @@ function Drafter({ model }: { model: Model }) {
           </main>
         )}
 
-        <footer className={cn("mt-12 space-y-1 border-t border-border pt-6 text-xs leading-relaxed text-muted", m === null && "mx-auto max-w-3xl")}>
+        <footer className={cn("mt-12 space-y-1 border-t border-border pt-6 text-xs leading-relaxed text-muted", m === null && "mx-auto max-w-2xl text-center")}>
           <p>
             Trained on Masters-level Ranked matches up to {model.data.data_window[1].slice(0, 10)}
             {model.data.patches?.length ? <>, latest patch {model.data.patches.at(-1)!.date}</> : null}. Win chances assume good play

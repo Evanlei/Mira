@@ -140,8 +140,8 @@ export function MapGrid({ model, onPick }: { model: Model; onPick: (mp: number) 
         )
       ) : (
         <>
-          <div className="mt-4 mb-2 text-xs text-faint">or browse by mode</div>
-          <div className="no-scrollbar -mx-5 flex gap-2 overflow-x-auto px-5 pb-1 sm:mx-0 sm:flex-wrap sm:px-0">
+          <div className="mt-5 mb-2.5 text-center text-xs text-faint">or browse by mode</div>
+          <div className="no-scrollbar -mx-5 flex gap-2 overflow-x-auto px-5 pb-1 sm:mx-0 sm:flex-wrap sm:justify-center sm:px-0">
             {modes.map(([md, n]) => {
               const info = modeInfo(md);
               return (
