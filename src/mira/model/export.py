@@ -63,6 +63,25 @@ def to_dict(model: WinModel, m: Matches, games: dict, extra: dict | None = None,
     }
 
 
+def pick_model_dict(pm, threshold: float = 0.01) -> dict:
+    B = pm.log_base.shape[0]
+    i, j = np.triu_indices(B, k=1)
+
+    def sparse(arr):
+        v = arr[i, j]
+        keep = np.abs(v) > threshold
+        return [[int(a), int(b), round(float(x), 3)] for a, b, x in zip(i[keep], j[keep], v[keep])]
+
+    return {
+        "doc": "score(b) = log_base[b][map] + alpha*sum_allies lift + beta*sum_enemies lift; softmax over "
+               "available brawlers. Lifts are symmetric, sparse [i, j, value] with i<j; missing = 0.",
+        "alpha": pm.alpha, "beta": pm.beta,
+        "log_base": [[round(float(x), 3) for x in row] for row in pm.log_base],
+        "ally_lift": sparse(pm.ally_lift),
+        "enemy_lift": sparse(pm.enemy_lift),
+    }
+
+
 def game_counts(m: Matches) -> dict:
     """Sample sizes the UI uses for confidence badges: games per brawler overall and per map."""
     B, nmap = m.n_brawlers, len(m.maps)

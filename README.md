@@ -155,8 +155,29 @@ the crawler itself has no dependencies.
 - **Baselines** (`src/mira/model/baselines.py`): their statistics come from training data, and their
   weights are fitted out-of-fold so they aren't overconfident. The DeepDraft-style score rebuilds
   DeepDraft's published method (base + synergy ± counters − role conflict) with fitted weights.
+- **Pick model** (`src/mira/model/pickmodel.py`): how likely a typical Masters player is to pick each
+  brawler, from map pick rates plus ally/enemy co-occurrence. It's learned from final teams, so it
+  can't tell early picks from late ones.
 - **MVP bar:** the paired-bootstrap 95% interval of log loss vs the DeepDraft-style baseline excludes
   0, and calibration error is at most 0.03.
+
+## Draft suggestions
+
+```sh
+uv run mira suggest --map "Hard Rock Mine" --first us                       # empty draft
+uv run mira suggest --map "hard rock" --first them --theirs piper --bans gus,shade
+uv run mira bans --map "Hard Rock Mine" --first us
+```
+
+`suggest` runs an expectimax search over the rest of the draft (`src/mira/engine/search.py`). On your
+turns it takes the best option; on theirs it weighs their most likely picks by probability. It
+prints the top options for the current turn and the most likely line, with alternatives at each
+step. The engine reads only `model.json` and uses the standard library, so it is the reference for
+the website's port.
+
+**Caveat:** the "expected win chance" is optimistic. The search keeps the best of several noisy
+estimates and assumes the opponent picks like a typical player, not a counter-picker. Trust the
+ranking more than the absolute %.
 
 ## Tests
 

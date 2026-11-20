@@ -265,6 +265,22 @@ crawler (Mac) ──► mira.db ──► `mira train` ──► model.json ─�
 5. Reading drafts from VODs, only with creator permission.
 6. Automated crawl → train → publish on a schedule.
 
+## 10b. Findings from the first build (2026-11-20)
+
+- **The search's win % is optimistic:** at ~20k matches, an empty draft shows ~64%. The search
+  keeps the best of K noisy estimates (winner's curse), and the opponent is modelled as typical, not
+  adversarial. The UI should lead with the ranking. Options to fix it: shrink displayed values
+  toward 50% by the model's held-out calibration slope, or show "edge vs the typical pick" instead
+  of an absolute %.
+- **Solo queue:** each player picks only their own slot. "Our picks" are suggestions for whichever
+  teammate is picking. The power-11 filter should apply to the user's own slots only. MVP: apply it
+  to all our slots (as DeepDraft does), falling back to every brawler if the pool runs out.
+- **Pair terms aren't used yet:** tuning sets synergy/matchup L2 high, so pair terms are near zero
+  and suggestions are effectively strength-based. Recheck as data grows.
+- **Python reference engine:** `mira suggest` / `mira bans` (`src/mira/engine/`, standard library
+  only, reads `model.json`). Parity with the numpy models is tested in `tests/test_engine.py`. A full
+  search takes ~0.1 s in Python, so a JS port will fit the 300 ms phone budget easily.
+
 ## 11. Open questions
 
 1. **Player-tag lookup:** confirm the proxy option and check its terms (§6.4).

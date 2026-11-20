@@ -244,6 +244,25 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
         verdict = "better" if hi < 0 else ("worse" if lo > 0 else "no clear difference")
         print(f"  {name.ljust(w)}  {d:+.4f}  [{lo:+.4f}, {hi:+.4f}]  {verdict}")
     print("\nMVP bar (spec §8): " + ("PASS" if r.passes else "not met: " + "; ".join(r.reasons)))
+
+    from .model import pickmodel
+    from .model.evaluate import time_split
+    mask, _ = time_split(m, args.test_days)
+    train, test = m.subset(~mask), m.subset(mask)
+    k = int(round(len(train) * 0.8))
+    tuned = pickmodel.tune(pickmodel.PickModel.fit(train.subset(slice(0, k))), train.subset(slice(k, k + 1500)))
+    full = pickmodel.PickModel.fit(train)
+    full.alpha, full.beta = tuned.alpha, tuned.beta
+    base = pickmodel.PickModel.fit(train)
+    base.alpha = base.beta = 0.0
+    sample = test.subset(slice(0, 3000))
+    print(f"\nPick model (predict each brawler from the map, its 2 allies and 3 enemies; "
+          f"{len(sample) * 6:,} held-out picks, ~{m.n_brawlers - 5} options each):")
+    pw = 36
+    print(f"  {'model'.ljust(pw)}  log-lik   top-1   top-5  top-10")
+    for name, pm in (("map pick rates only", base), (f"+ allies/enemies (a={full.alpha:g}, b={full.beta:g})", full)):
+        e = pickmodel.evaluate(pm, sample)
+        print(f"  {name.ljust(pw)}  {e['log_lik']:7.3f}  {e['top1']:6.1%}  {e['top5']:6.1%}  {e['top10']:6.1%}")
     return 0
 
 
@@ -260,13 +279,104 @@ def cmd_train(args: argparse.Namespace) -> int:
         l2 = evaluate.tune_l2(m, w)[0]
     print("L2: " + ", ".join(f"{k}={v:g}" for k, v in l2.items()))
     model = WinModel.fit(m, w, l2)
+    from .model.pickmodel import PickModel, tune as tune_pick
+    k = int(round(len(m) * 0.8))
+    pm = tune_pick(PickModel.fit(m.subset(slice(0, k)), w[:k]), m.subset(slice(k, k + 1500)))
+    pick = PickModel.fit(m, w)
+    pick.alpha, pick.beta = pm.alpha, pm.beta
+    print(f"Pick model: alpha={pick.alpha:g}, beta={pick.beta:g}")
     data = export.to_dict(model, m, export.game_counts(m), extra={
+        "pick_model": export.pick_model_dict(pick),
         "patches": [{"date": p.date, "changes": p.changes} for p in plog],
         "weighting": {"half_life_days": args.half_life, "pre_patch_factor": args.pre_patch_factor},
     })
     size = export.write(args.out, data)
     print(f"Wrote {args.out} ({size / 1e6:.2f} MB) from {len(m):,} matches. "
           "Run `mira evaluate` for held-out accuracy.")
+    return 0
+
+
+def _engine(args):
+    from .engine.model import Model
+    try:
+        model = Model.load(args.model)
+    except FileNotFoundError:
+        raise SystemExit(f"error: {args.model} not found: run `mira train` first.") from None
+    if "pick_model" not in model.data:
+        raise SystemExit(f"error: {args.model} has no pick model: rerun `mira train`.")
+    return model
+
+
+def _names(model, csv_list: str | None) -> list[int]:
+    return [model.brawler(x) for x in (csv_list or "").split(",") if x.strip()]
+
+
+def _pct(p: float) -> str:
+    return f"{round(p * 100):d}%"
+
+
+def cmd_suggest(args: argparse.Namespace) -> int:
+    from .engine.search import Searcher
+
+    model = _engine(args)
+    try:
+        mp = model.map(args.map)
+        ours, theirs, bans = _names(model, args.ours), _names(model, args.theirs), _names(model, args.bans)
+    except KeyError as e:
+        raise SystemExit(f"error: {e.args[0]}") from None
+    if set(ours) & set(theirs) or (set(ours) | set(theirs)) & set(bans):
+        raise SystemExit("error: a brawler appears twice (picked by both teams, or picked and banned)")
+    we_first = args.first == "us"
+    try:
+        r = Searcher(model, mp, set(bans)).run(tuple(ours), tuple(theirs), we_first)
+    except ValueError as e:
+        raise SystemExit(f"error: {e}") from None
+
+    name = lambda picks: " + ".join(model.names[b] for b in picks)  # noqa: E731
+    mode, map_name = model.maps[mp]
+    print(f"{map_name} ({mode}) · you pick {'first' if we_first else 'second'} · "
+          f"you: {name(ours) or '-'} · them: {name(theirs) or '-'} · bans: {name(bans) or '-'}")
+    if r.side == "done":
+        print(f"Draft complete: {_pct(r.win)} win chance.")
+        return 0
+    print(f"Expected win chance with best play: {_pct(r.win)}\n")
+    if r.side == "us":
+        print(f"Your pick{'s' if r.turn_size == 2 else ''} now:")
+        for o in r.suggestions[:5]:
+            low = [model.names[b] for b in o.picks if model.games_on_map(b, mp) < 100]
+            note = f"   (few games on this map: {', '.join(low)})" if low else ""
+            print(f"  {name(o.picks).ljust(28)} {_pct(o.win):>4}{note}")
+    else:
+        print("Their turn. Most likely picks:")
+        for o in r.suggestions[:5]:
+            print(f"  {name(o.picks).ljust(28)} {_pct(o.prob):>4} likely  → you {_pct(o.win)}")
+    print("\nMost likely line:")
+    for st in r.line:
+        who = "You " if st.side == "us" else "Them"
+        main = name(st.chosen.picks)
+        if st.side == "us":
+            head = f"{main} → {_pct(st.chosen.win)}"
+            alts = " · ".join(f"{name(a.picks)} {_pct(a.win)}" for a in st.alternatives)
+        else:
+            head = f"{main} ({_pct(st.chosen.prob)} likely) → {_pct(st.chosen.win)}"
+            alts = " · ".join(f"{name(a.picks)} {_pct(a.prob)}" for a in st.alternatives)
+        print(f"  {who}: {head.ljust(44)} alts: {alts or '-'}")
+    return 0
+
+
+def cmd_bans(args: argparse.Namespace) -> int:
+    from .engine.search import suggest_bans
+
+    model = _engine(args)
+    try:
+        mp = model.map(args.map)
+        banned = set(_names(model, args.bans))
+    except KeyError as e:
+        raise SystemExit(f"error: {e.args[0]}") from None
+    mode, map_name = model.maps[mp]
+    print(f"Ban suggestions for {map_name} ({mode}), you pick {'first' if args.first == 'us' else 'second'}:")
+    for b, win, gain in suggest_bans(model, mp, args.first == "us", banned, n=args.n):
+        print(f"  {model.names[b].ljust(16)} → {_pct(win)} win chance ({gain * 100:+.1f} pts)")
     return 0
 
 
@@ -373,6 +483,23 @@ def build_parser() -> argparse.ArgumentParser:
     model_args(sp)
     sp.add_argument("--out", default="model.json", help="output path (default: %(default)s)")
     sp.set_defaults(func=cmd_train)
+
+    def draft_args(sp):
+        sp.add_argument("--model", default="model.json", help="trained model (default: %(default)s)")
+        sp.add_argument("--map", required=True, help="map name (prefix ok)")
+        sp.add_argument("--first", choices=["us", "them"], required=True, help="who has first pick")
+        sp.add_argument("--bans", help="comma-separated banned brawlers (both teams)")
+
+    sp = sub.add_parser("suggest", help="suggest picks for the current draft and show the likely line")
+    draft_args(sp)
+    sp.add_argument("--ours", help="our picks so far, comma-separated, in pick order")
+    sp.add_argument("--theirs", help="their picks so far, comma-separated, in pick order")
+    sp.set_defaults(func=cmd_suggest)
+
+    sp = sub.add_parser("bans", help="suggest bans for a map")
+    draft_args(sp)
+    sp.add_argument("-n", type=int, default=5, help="number of suggestions (default: 5)")
+    sp.set_defaults(func=cmd_bans)
 
     sp = sub.add_parser("export", help="write one CSV row per match")
     sp.add_argument("--out", default="matches.csv", help="output path, or - for stdout")
