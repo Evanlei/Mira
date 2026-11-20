@@ -18,7 +18,7 @@
   --us: #2563eb; /* blue-600 */
   --them: #dc2626; /* red-600 */
   --warn: #ea580c; /* orange-600 */
-  --dot: rgba(0, 0, 0, 0.12);
+  --dot: rgba(0, 0, 0, 0.15); /* jmo portfolio: 1px dots every 20px */
   --image-outline: oklch(0 0 0 / 0.1);
   --shadow-border:
     0px 0px 0px 1px oklch(0 0 0 / 0.06),
@@ -46,7 +46,7 @@
     --us: #3b82f6; /* blue-500 */
     --them: #ef4444; /* red-500 */
     --warn: #fb923c; /* orange-400 */
-    --dot: transparent;
+    --dot: rgba(255, 255, 255, 0.1);
     --image-outline: oklch(1 0 0 / 0.1);
     --shadow-border: 0 0 0 1px oklch(1 0 0 / 0.06);
     --shadow-border-hover: 0 0 0 1px oklch(1 0 0 / 0.12);

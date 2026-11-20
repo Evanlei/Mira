@@ -133,7 +133,7 @@ function Drafter({ model }: { model: Model }) {
             >
               {img ? (
                 // eslint-disable-next-line @next/next/no-img-element -- static map art
-                <img src={img} alt="" className="size-[30px] shrink-0 rounded-full object-cover" />
+                <img src={img} alt="" className="art size-[30px] shrink-0 rounded-full object-cover" />
               ) : (
                 <span className="size-[30px] shrink-0 rounded-full bg-subtle" />
               )}
@@ -165,7 +165,7 @@ function Drafter({ model }: { model: Model }) {
                 <Fan model={model} picks={featured} size={60} />
               </div>
             </header>
-            <main className="mt-10 space-y-10">
+            <main className="mt-10">
               <section className="card enter enter-1 rounded-[22px] p-4 sm:p-5">
                 <div className="mb-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
                   <h2 className="text-lg font-bold tracking-tight">Choose your map</h2>
@@ -174,18 +174,6 @@ function Drafter({ model }: { model: Model }) {
                 <MapGrid model={model} onPick={(i) => commit({ ...EMPTY, map: i, weFirst: draft.weFirst })} />
               </section>
 
-              <section aria-label="How it works" className="enter enter-2">
-                <h2 className="mb-3 text-sm font-semibold text-muted">How it works</h2>
-                <ol className="grid gap-3 sm:grid-cols-3">
-                  {HOW.map((x, i) => (
-                    <li key={x.title} className="card rounded-[20px] p-4">
-                      <span className="tabular text-xs font-bold text-faint">{i + 1}</span>
-                      <h3 className="mt-1 text-[15px] font-bold">{x.title}</h3>
-                      <p className="mt-1 text-sm leading-relaxed text-muted">{x.body}</p>
-                    </li>
-                  ))}
-                </ol>
-              </section>
             </main>
           </div>
         ) : (
@@ -201,7 +189,7 @@ function Drafter({ model }: { model: Model }) {
                   <span className="text-[15px] font-bold">{m.map}</span>
                   <span className="text-[13px] text-muted">{modeInfo(m.mode).name}</span>
                 </span>
-                <button onClick={() => setMapOpen(true)} className="pressable card h-8 rounded-full px-3 text-[13px] font-semibold hover:bg-subtle">
+                <button onClick={() => setMapOpen(true)} className="pressable h-8 rounded-full bg-subtle px-3.5 text-[13px] font-semibold text-muted hover:text-foreground">
                   Change
                 </button>
               </figcaption>
@@ -216,10 +204,10 @@ function Drafter({ model }: { model: Model }) {
                 <FirstPick weFirst={draft.weFirst} onChange={setFirst} disabled={started} />
                 <span className="ms-auto flex gap-2">
                   <ToolButton label="Undo" onClick={undo} disabled={!history.length}>
-                    <Undo2 size={16} strokeWidth={1.75} absoluteStrokeWidth />
+                    <Undo2 size={16} strokeWidth={2} absoluteStrokeWidth />
                   </ToolButton>
                   <ToolButton label="Reset" onClick={reset} disabled={!started && !draft.skipBans}>
-                    <RotateCcw size={16} strokeWidth={1.75} absoluteStrokeWidth />
+                    <RotateCcw size={16} strokeWidth={2} absoluteStrokeWidth />
                   </ToolButton>
                 </span>
               </div>
@@ -273,12 +261,6 @@ function Drafter({ model }: { model: Model }) {
   );
 }
 
-const HOW = [
-  { title: "Pick the map", body: "Search it or browse by mode, and say who picks first." },
-  { title: "Ban", body: "I suggest the bans worth the most on that map. Or skip straight to picks." },
-  { title: "Draft by lines", body: "Each line shows your picks, their likely reply and your win chance. Type / to enter any brawler." },
-];
-
 /** Who picks first: a two-way switch. Locked once the draft has started (reset to change). */
 function FirstPick({ weFirst, onChange, disabled }: { weFirst: boolean; onChange: (weFirst: boolean) => void; disabled?: boolean }) {
   const opt = (value: boolean, label: string) => {
@@ -290,8 +272,8 @@ function FirstPick({ weFirst, onChange, disabled }: { weFirst: boolean; onChange
         onClick={() => onChange(value)}
         disabled={disabled && !on}
         className={cn(
-          "pressable h-8 rounded-lg px-3 text-[13px] disabled:opacity-40",
-          on ? "bg-foreground font-bold text-background" : "font-semibold text-foreground/80 enabled:hover:bg-subtle",
+          "pressable h-8 rounded-full px-3.5 text-[13px] disabled:opacity-40",
+          on ? "bg-foreground font-bold text-background" : "font-semibold text-muted enabled:hover:text-foreground",
         )}
       >
         {label}
@@ -303,9 +285,9 @@ function FirstPick({ weFirst, onChange, disabled }: { weFirst: boolean; onChange
       role="radiogroup"
       aria-label="Who picks first"
       title={disabled ? "Reset the draft to change" : undefined}
-      className="card flex h-10 items-center gap-0.5 rounded-xl p-1"
+      className="flex h-10 items-center gap-0.5 rounded-full bg-subtle p-1"
     >
-      <span className="ps-1.5 pe-2 text-[13px] text-muted">First pick</span>
+      <span className="ps-2.5 pe-1.5 text-[13px] text-muted">First pick</span>
       {opt(true, "Us")}
       {opt(false, "Them")}
     </div>
@@ -319,7 +301,7 @@ function ToolButton({ label, onClick, disabled, children }: { label: string; onC
       disabled={disabled}
       aria-label={label}
       title={label}
-      className="pressable card flex h-10 items-center gap-2 rounded-xl px-3 text-[13px] font-semibold text-foreground/80 enabled:hover:bg-subtle disabled:opacity-40 sm:pe-3.5"
+      className="pressable flex h-10 items-center gap-2 rounded-full bg-subtle px-3 text-[13px] font-semibold text-muted enabled:hover:text-foreground disabled:opacity-40 sm:ps-3.5 sm:pe-4"
     >
       {children}
       <span className="hidden sm:inline">{label}</span>

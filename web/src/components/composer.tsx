@@ -125,8 +125,8 @@ export function Composer({
           </h2>
         </div>
 
-        <label className="card flex h-10 w-full items-center gap-2 rounded-xl px-3 ring-foreground focus-within:ring-2 sm:ms-auto sm:w-[280px]">
-          <Search size={15} strokeWidth={1.75} absoluteStrokeWidth className="shrink-0 text-muted" />
+        <label className="flex h-10 w-full items-center gap-2 rounded-full bg-subtle px-4 ring-foreground focus-within:ring-2 sm:ms-auto sm:w-[280px]">
+          <Search size={15} strokeWidth={1.5} absoluteStrokeWidth className="shrink-0 text-muted" />
           <input
             ref={input}
             value={q}
@@ -174,11 +174,11 @@ export function Composer({
 
       <div className="flex items-center justify-between gap-3 text-sm text-muted">
         <button onClick={onBrowse} className="pressable inline-flex h-10 items-center gap-1.5 hover:text-foreground">
-          <LayoutGrid size={16} strokeWidth={1.75} absoluteStrokeWidth />
+          <LayoutGrid size={16} strokeWidth={1.5} absoluteStrokeWidth />
           Browse all brawlers
         </button>
         {t.kind === "ban" && (
-          <button onClick={onSkipBans} className="pressable h-10 rounded-full border border-border px-4 hover:text-foreground">
+          <button onClick={onSkipBans} className="pressable h-10 rounded-full bg-subtle px-4 font-semibold hover:text-foreground">
             Skip bans
           </button>
         )}
@@ -275,7 +275,7 @@ function Results({
                 onClick={() => onChoose(r)}
                 onMouseEnter={() => !r.off && onHover(r)}
                 className={cn(
-                  "pressable grid min-h-16 w-full items-center gap-x-3 rounded-[20px] px-3 py-2.5 text-start disabled:opacity-40 sm:px-4",
+                  "pressable grid min-h-16 w-full items-center gap-x-3 rounded-[22px] px-3 py-2.5 text-start disabled:opacity-40 sm:px-4",
                   grid,
                   best ? "bg-foreground text-background shadow-[var(--shadow-lift)]" : "card",
                   isActive && q && "ring-2 ring-foreground",

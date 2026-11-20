@@ -72,7 +72,7 @@ export function MapGrid({ model, onPick }: { model: Model; onPick: (mp: number) 
 
   return (
     <div>
-      <label className="flex h-12 items-center gap-2.5 rounded-[14px] bg-subtle px-4 ring-accent focus-within:ring-2">
+      <label className="flex h-12 items-center gap-2.5 rounded-full bg-subtle px-5 ring-foreground focus-within:ring-2">
         <Search size={18} strokeWidth={1.5} absoluteStrokeWidth className="shrink-0 text-faint" />
         <input
           ref={input}
@@ -193,12 +193,12 @@ function Chip({ active, color, onClick, children }: { active: boolean; color?: s
       onClick={onClick}
       aria-pressed={active}
       className={cn(
-        "pressable flex h-9 shrink-0 items-center gap-1.5 rounded-full border px-3 text-sm font-medium",
-        active ? "text-foreground" : "border-border text-muted hover:text-foreground",
+        "pressable flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3.5 text-sm font-medium",
+        active ? "text-foreground ring-1 ring-inset" : "bg-subtle text-foreground/80 hover:text-foreground",
       )}
       style={
         active
-          ? { borderColor: color ?? "var(--accent)", background: `color-mix(in oklab, ${color ?? "var(--accent)"} 16%, transparent)` }
+          ? { ["--tw-ring-color" as string]: color ?? "var(--accent)", background: `color-mix(in oklab, ${color ?? "var(--accent)"} 16%, transparent)` }
           : undefined
       }
     >
