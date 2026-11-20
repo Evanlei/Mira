@@ -4,9 +4,10 @@ import { Search } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 
 import type { Model } from "@/engine/model";
-import { displayMode, displayName, search } from "@/lib/names";
+import { mapImage, modeInfo } from "@/lib/art";
+import { displayName, search } from "@/lib/names";
 
-import { Avatar, Sheet, cn } from "./ui";
+import { ModeIcon, Portrait, Sheet, cn } from "./ui";
 
 export function MapSheet({
   model,
@@ -26,38 +27,49 @@ export function MapSheet({
   const groups = useMemo(() => {
     const byMode = new Map<string, number[]>();
     model.maps.forEach((m, i) => {
-      if (q && !search(m.map, q) && !search(m.mode, q)) return;
+      if (q && !search(m.map, q) && !search(modeInfo(m.mode).name, q)) return;
       byMode.set(m.mode, [...(byMode.get(m.mode) ?? []), i]);
     });
-    return [...byMode.entries()].sort((a, b) => displayMode(a[0]).localeCompare(displayMode(b[0])));
+    return [...byMode.entries()].sort((a, b) => modeInfo(a[0]).name.localeCompare(modeInfo(b[0]).name));
   }, [model, q]);
 
   return (
-    <Sheet open={open} onClose={onClose} title="Choose map" initialFocus={input}>
+    <Sheet open={open} onClose={onClose} title="Choose a map" initialFocus={input}>
       <SearchInput ref={input} value={q} onChange={setQ} placeholder="Search maps or modes" />
-      {groups.length === 0 && <p className="py-8 text-center text-[14px] text-muted">No maps match “{q}”.</p>}
+      {groups.length === 0 && <p className="py-8 text-center text-sm text-muted">No maps match “{q}”.</p>}
       {groups.map(([mode, maps]) => (
-        <section key={mode} className="mt-4">
-          <h3 className="mb-1.5 text-[12px] font-semibold tracking-wide text-faint uppercase">{displayMode(mode)}</h3>
-          <div className="grid grid-cols-2 gap-2">
+        <section key={mode} className="mt-5">
+          <h3 className="mb-2 flex items-center gap-1.5 text-sm font-medium text-muted">
+            <ModeIcon mode={mode} size={16} />
+            {modeInfo(mode).name}
+          </h3>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             {[...maps]
               .sort((a, b) => model.maps[a].map.localeCompare(model.maps[b].map))
-              .map((i) => (
-                <button
-                  key={i}
-                  onClick={() => {
-                    onPick(i);
-                    onClose();
-                  }}
-                  aria-current={i === current}
-                  className={cn(
-                    "pressable surface min-h-11 rounded-[12px] px-3 py-2.5 text-start text-[14px] font-medium",
-                    i === current && "bg-accent-soft text-accent",
-                  )}
-                >
-                  {model.maps[i].map}
-                </button>
-              ))}
+              .map((i) => {
+                const img = mapImage(model.maps[i].mode, model.maps[i].map);
+                return (
+                  <button
+                    key={i}
+                    onClick={() => {
+                      onPick(i);
+                      onClose();
+                    }}
+                    aria-current={i === current}
+                    className={cn(
+                      "card pressable group relative h-20 overflow-hidden rounded-xl text-start",
+                      i === current && "ring-2 ring-accent",
+                    )}
+                  >
+                    {img && (
+                      // eslint-disable-next-line @next/next/no-img-element -- static map art
+                      <img src={img} alt="" loading="lazy" className="absolute inset-0 size-full object-cover opacity-30 transition-opacity duration-300 group-hover:opacity-60 dark:opacity-20" />
+                    )}
+                    <span className="absolute inset-0 bg-gradient-to-b from-background/90 via-background/50 to-transparent" />
+                    <span className="relative block p-3 text-sm font-medium">{model.maps[i].map}</span>
+                  </button>
+                );
+              })}
           </div>
         </section>
       ))}
@@ -113,27 +125,21 @@ export function BrawlerSheet({
       />
       {!q && ranked.length > 0 && (
         <section className="mt-4">
-          <h3 className="mb-1.5 text-[12px] font-semibold tracking-wide text-faint uppercase">{rankedLabel}</h3>
-          <div className="flex flex-col gap-1.5">
-            {ranked.slice(0, 5).map(({ b, note }) => (
-              <button
-                key={b}
-                onClick={() => pick(b)}
-                className="pressable surface flex min-h-12 items-center justify-between gap-3 rounded-[12px] px-3 text-start"
-              >
-                <span className="flex items-center gap-2">
-                  <Avatar id={model.ids[b]} name={model.names[b]} />
-                  <span className="text-[15px] font-medium">{displayName(model.names[b])}</span>
-                </span>
-                <span className="tabular text-[14px] text-muted">{note}</span>
+          <h3 className="mb-2 text-sm font-medium text-muted">{rankedLabel}</h3>
+          <div className="flex flex-wrap gap-1.5">
+            {ranked.slice(0, 6).map(({ b, note }) => (
+              <button key={b} onClick={() => pick(b)} className="card pressable flex h-9 items-center gap-2 rounded-full ps-1 pe-3 text-sm">
+                <Portrait id={model.ids[b]} name={model.names[b]} size={28} className="rounded-full" />
+                {displayName(model.names[b])}
+                <span className="tabular text-muted">{note}</span>
               </button>
             ))}
           </div>
         </section>
       )}
-      <section className="mt-4">
-        {!q && <h3 className="mb-1.5 text-[12px] font-semibold tracking-wide text-faint uppercase">All brawlers</h3>}
-        <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+      <section className="mt-5">
+        {!q && <h3 className="mb-2 text-sm font-medium text-muted">All brawlers</h3>}
+        <div className="grid grid-cols-4 gap-x-2 gap-y-3 sm:grid-cols-6">
           {shown.map((b) => {
             const off = isUnavailable(b);
             return (
@@ -141,15 +147,16 @@ export function BrawlerSheet({
                 key={b}
                 disabled={off}
                 onClick={() => pick(b)}
-                className="pressable surface flex min-h-[76px] flex-col items-center justify-center gap-1.5 rounded-[12px] px-1 py-2 disabled:opacity-35"
+                aria-label={displayName(model.names[b]) + (off ? " (taken or banned)" : "")}
+                className="pressable flex min-w-0 flex-col items-center gap-1 disabled:opacity-30"
               >
-                <Avatar id={model.ids[b]} name={model.names[b]} size={32} />
-                <span className="w-full truncate text-center text-[12px] font-medium">{displayName(model.names[b])}</span>
+                <Portrait id={model.ids[b]} name={model.names[b]} size={52} className={cn("rounded-xl", off && "grayscale")} />
+                <span className="w-full truncate text-center text-xs text-foreground/80">{displayName(model.names[b])}</span>
               </button>
             );
           })}
         </div>
-        {shown.length === 0 && <p className="py-8 text-center text-[14px] text-muted">No brawlers match “{q}”.</p>}
+        {shown.length === 0 && <p className="py-8 text-center text-sm text-muted">No brawlers match “{q}”.</p>}
       </section>
     </Sheet>
   );
@@ -169,8 +176,8 @@ function SearchInput({
   onEnter?: () => void;
 }) {
   return (
-    <label className="sticky top-0 z-10 -mx-4 block bg-surface px-4 pb-1">
-      <span className="flex h-11 items-center gap-2 rounded-[12px] border border-divider bg-surface-2 px-3">
+    <label className="sticky top-0 z-10 -mx-5 block bg-background px-5 pb-1">
+      <span className="flex h-11 items-center gap-2 rounded-xl border border-foreground/15 bg-surface px-3 focus-within:border-accent">
         <Search size={16} strokeWidth={1.5} absoluteStrokeWidth className="text-faint" />
         <input
           ref={ref}
@@ -179,7 +186,7 @@ function SearchInput({
           onKeyDown={(e) => e.key === "Enter" && onEnter?.()}
           placeholder={placeholder}
           aria-label={placeholder}
-          className="h-full min-w-0 flex-1 bg-transparent text-[16px] outline-none placeholder:text-faint"
+          className="h-full min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-faint focus-visible:outline-none"
         />
       </span>
     </label>
