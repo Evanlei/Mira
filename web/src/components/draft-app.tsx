@@ -76,11 +76,13 @@ function Drafter({ model }: { model: Model }) {
   const bannedSet = useMemo(() => banned(draft), [draft]);
 
   // One searcher per draft state: it runs the current turn's search (well under 100 ms in the
-  // browser) and its memo makes scoring a typed brawler cheap.
+  // browser) and its memo makes scoring a typed brawler cheap. With `mine`, our picks come from
+  // the player's power-11 brawlers (their side still drafts from everything); when that pool
+  // can't fill a turn the engine falls back to every brawler, since teammates field their own.
   const searcher = useMemo(
-    () => (mp === null || t.kind === "ban" ? null : new Searcher(model, mp, bannedSet)),
+    () => (mp === null || t.kind === "ban" ? null : new Searcher(model, mp, bannedSet, mine)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [model, mp, t.kind, bannedSet, draft.ours, draft.theirs, draft.weFirst],
+    [model, mp, t.kind, bannedSet, draft.ours, draft.theirs, draft.weFirst, mine],
   );
   const result: Result | null = useMemo(
     () => (searcher ? searcher.run(draft.ours, draft.theirs, draft.weFirst) : null),
@@ -90,10 +92,11 @@ function Drafter({ model }: { model: Model }) {
   // Ban suggestions: ~16 searches, so compute after paint.
   // Results are tagged with the draft they belong to; a stale tag reads as "loading".
   const [banResult, setBanResult] = useState<{ key: string; bans: BanSuggestion[] } | null>(null);
-  const banKey = mp === null || t.kind !== "ban" ? null : `${mp}|${draft.weFirst}|${[...bannedSet].sort().join(",")}`;
+  const poolKey = mine ? [...mine].sort((a, b) => a - b).join(".") : "all";
+  const banKey = mp === null || t.kind !== "ban" ? null : `${mp}|${draft.weFirst}|${[...bannedSet].sort().join(",")}|${poolKey}`;
   useEffect(() => {
     if (banKey === null || mp === null) return;
-    const id = setTimeout(() => setBanResult({ key: banKey, bans: suggestBans(model, mp, draft.weFirst, bannedSet, 15) }), 16);
+    const id = setTimeout(() => setBanResult({ key: banKey, bans: suggestBans(model, mp, draft.weFirst, bannedSet, 15, 15, mine) }), 16);
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [banKey]);

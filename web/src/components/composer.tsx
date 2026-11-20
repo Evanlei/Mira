@@ -70,13 +70,13 @@ export function Composer({
   const replies = useMemo(() => {
     const out = new Map<string, number[]>();
     if (!searcher || !result || t.kind !== "pick" || t.side !== "us") return out;
-    for (const o of result.suggestions.filter((o) => !ready || o.picks.every((b) => ready.has(b)))) {
+    for (const o of result.suggestions) {
       const d = applyAll(draft, o.picks);
       const step = searcher.run(d.ours, d.theirs, d.weFirst, 0).line[0];
       out.set(o.picks.join("-"), step && step.side === "them" ? step.chosen.picks : []);
     }
     return out;
-  }, [searcher, result, draft, t, ready]);
+  }, [searcher, result, draft, t]);
 
   if (t.kind === "done") return null;
   const ours = t.side === "us";
@@ -98,7 +98,7 @@ export function Composer({
 
   const rows: Row[] = q
     ? matches(model, q, isUnavailable, draft).map((r) => ({ ...r, value: r.off ? "" : scoreOf(r.picks[0]) }))
-    : suggestionRows(model, t, result, bans, mp, replies, ready);
+    : suggestionRows(model, t, result, bans, mp, replies);
   const live = rows.filter((r) => !r.off);
   const active = live.length ? live[((cursor % live.length) + live.length) % live.length] : null;
   const choose = (r: Row) => {
@@ -214,14 +214,12 @@ function suggestionRows(
   bans: BanSuggestion[] | null,
   mp: number,
   replies: Map<string, number[]>,
-  ready: ReadonlySet<number> | null,
 ): Row[] {
   if (t.kind === "ban") return (bans ?? []).map((x, i) => ({ key: String(x.brawler), picks: [x.brawler], value: gainPts(x.gain), best: i === 0 }));
   if (!result || t.kind !== "pick") return [];
   const ours = t.side === "us";
-  // Your lines keep to your power-11 brawlers when that's on. Their picks are never filtered.
-  const kept = ours && ready ? result.suggestions.filter((o) => o.picks.every((b) => ready.has(b))) : result.suggestions;
-  return kept.map((o, i) => ({
+  // The search already keeps your lines to your power-11 brawlers (see Searcher's pool).
+  return result.suggestions.map((o, i) => ({
     key: o.picks.join("-"),
     picks: o.picks,
     value: ours ? pct(o.win) : pct(o.prob ?? 0),

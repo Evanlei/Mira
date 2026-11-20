@@ -31,12 +31,15 @@ def write(model_path: str, out_path: str, n_cases: int = 12, seed: int = 7) -> i
         n_first, n_second = states[i % len(states)]
         n_ours, n_theirs = (n_first, n_second) if we_first else (n_second, n_first)
         ours, theirs = rest[:n_ours], rest[n_ours:n_ours + n_theirs]
+        # Every third case restricts our side to a pool (the player's power-11 brawlers).
+        taken = set(bans) | set(ours) | set(theirs)
+        allowed = sorted(rng.sample([b for b in range(m.B) if b not in taken], 15)) if i % 3 == 2 else None
         try:
-            r = Searcher(m, mp, set(bans)).run(tuple(ours), tuple(theirs), we_first)
+            r = Searcher(m, mp, set(bans), set(allowed) if allowed else None).run(tuple(ours), tuple(theirs), we_first)
         except ValueError:
             continue
         cases.append({
-            "map": mp, "tier": tier, "we_first": we_first, "ours": ours, "theirs": theirs, "bans": bans,
+            "map": mp, "tier": tier, "allowed": allowed, "we_first": we_first, "ours": ours, "theirs": theirs, "bans": bans,
             "win": r.win, "side": r.side, "turn_size": r.turn_size,
             "suggestions": [opt(o) for o in r.suggestions],
             "line": [{"side": s.side, "chosen": opt(s.chosen), "alternatives": [opt(a) for a in s.alternatives]}
