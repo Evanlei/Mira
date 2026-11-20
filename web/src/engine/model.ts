@@ -1,0 +1,188 @@
+// Port of src/mira/engine/model.py: win scoring and pick probabilities from model.json.
+// Keep in step with the Python reference; tests/parity checks the two agree.
+
+export type ModelJson = {
+  format: number;
+  trained_at: string;
+  data_window: [string, string];
+  n_matches: number;
+  brawlers: { id: number; name: string }[];
+  modes: string[];
+  maps: { mode: string; map: string }[];
+  win_model: {
+    global: number[];
+    mode: number[][];
+    map: number[][];
+    synergy: [number, number, number][];
+    synergy_mode: [number, number, number, number][];
+    matchup: [number, number, number][];
+    matchup_mode: [number, number, number, number][];
+  };
+  pick_model: {
+    alpha: number;
+    beta: number;
+    log_base: number[][];
+    ally_lift: [number, number, number][];
+    enemy_lift: [number, number, number][];
+  };
+  games?: { brawler: number[]; brawler_map: number[][] };
+  patches?: { date: string; changes: Record<string, string> }[];
+};
+
+const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+export class Model {
+  readonly names: string[];
+  readonly ids: number[];
+  readonly B: number;
+  readonly maps: { mode: string; map: string }[];
+  readonly modes: string[];
+  private readonly modeOfMap: number[];
+  private readonly g: number[];
+  private readonly sMode: number[][];
+  private readonly sMap: number[][];
+  // Pair tables as flat arrays indexed lo*B+hi (and *nModes+mode): faster than Maps in the search.
+  private readonly syn: Float64Array;
+  private readonly synMode: Float64Array;
+  private readonly mu: Float64Array;
+  private readonly muMode: Float64Array;
+  private readonly ally: Float64Array;
+  private readonly enemy: Float64Array;
+  readonly alpha: number;
+  readonly beta: number;
+  private readonly logBase: number[][];
+  private readonly games?: { brawler: number[]; brawler_map: number[][] };
+
+  constructor(readonly data: ModelJson) {
+    this.names = data.brawlers.map((b) => b.name);
+    this.ids = data.brawlers.map((b) => b.id);
+    this.B = this.names.length;
+    this.maps = data.maps;
+    this.modes = data.modes;
+    this.modeOfMap = data.maps.map((m) => data.modes.indexOf(m.mode));
+    const w = data.win_model;
+    this.g = w.global;
+    this.sMode = w.mode;
+    this.sMap = w.map;
+    const B = this.B;
+    const nm = this.modes.length;
+    this.syn = new Float64Array(B * B);
+    this.synMode = new Float64Array(B * B * nm);
+    this.mu = new Float64Array(B * B);
+    this.muMode = new Float64Array(B * B * nm);
+    for (const [i, j, v] of w.synergy) this.syn[i * B + j] = v;
+    for (const [i, j, k, v] of w.synergy_mode) this.synMode[(i * B + j) * nm + k] = v;
+    for (const [i, j, v] of w.matchup) this.mu[i * B + j] = v;
+    for (const [i, j, k, v] of w.matchup_mode) this.muMode[(i * B + j) * nm + k] = v;
+    const p = data.pick_model;
+    this.alpha = p.alpha;
+    this.beta = p.beta;
+    this.logBase = p.log_base;
+    this.ally = new Float64Array(B * B);
+    this.enemy = new Float64Array(B * B);
+    for (const [i, j, v] of p.ally_lift) this.ally[i * B + j] = this.ally[j * B + i] = v;
+    for (const [i, j, v] of p.enemy_lift) this.enemy[i * B + j] = this.enemy[j * B + i] = v;
+    this.games = data.games;
+  }
+
+  brawler(name: string): number {
+    const key = norm(name);
+    const exact = this.names.findIndex((n) => norm(n) === key);
+    if (exact >= 0) return exact;
+    const hits = this.names.flatMap((n, i) => (norm(n).startsWith(key) ? [i] : []));
+    if (hits.length === 1) return hits[0];
+    throw new Error(`unknown brawler ${name}`);
+  }
+
+  map(name: string): number {
+    const key = norm(name);
+    let hits = this.maps.flatMap((m, i) => (norm(m.map) === key ? [i] : []));
+    if (!hits.length) hits = this.maps.flatMap((m, i) => (norm(m.map).startsWith(key) ? [i] : []));
+    if (hits.length === 1) return hits[0];
+    throw new Error(`unknown or ambiguous map ${name}`);
+  }
+
+  // -- win model --------------------------------------------------------------
+
+  strength(b: number, mp: number): number {
+    return this.g[b] + this.sMode[b][this.modeOfMap[mp]] + this.sMap[b][mp];
+  }
+
+  synergy(a: number, b: number, mp: number): number {
+    const [i, j] = a < b ? [a, b] : [b, a];
+    const k = this.modeOfMap[mp];
+    const ij = i * this.B + j;
+    return this.syn[ij] + this.synMode[ij * this.modes.length + k];
+  }
+
+  /** Edge of a over b (antisymmetric). */
+  matchup(a: number, b: number, mp: number): number {
+    if (a === b) return 0;
+    const [i, j] = a < b ? [a, b] : [b, a];
+    const k = this.modeOfMap[mp];
+    const ij = i * this.B + j;
+    const v = this.mu[ij] + this.muMode[ij * this.modes.length + k];
+    return a < b ? v : -v;
+  }
+
+  teamScore(team: readonly number[], mp: number): number {
+    let s = 0;
+    for (const b of team) s += this.strength(b, mp);
+    for (let x = 0; x < team.length; x++)
+      for (let y = x + 1; y < team.length; y++) s += this.synergy(team[x], team[y], mp);
+    return s;
+  }
+
+  /** Works on partial teams too (missing picks contribute 0). */
+  logit(ours: readonly number[], theirs: readonly number[], mp: number): number {
+    let s = this.teamScore(ours, mp) - this.teamScore(theirs, mp);
+    for (const a of ours) for (const b of theirs) s += this.matchup(a, b, mp);
+    return s;
+  }
+
+  winProb(ours: readonly number[], theirs: readonly number[], mp: number): number {
+    return 1 / (1 + Math.exp(-this.logit(ours, theirs, mp)));
+  }
+
+  /** Change in our logit from adding b to our team. */
+  gain(b: number, ours: readonly number[], theirs: readonly number[], mp: number): number {
+    let s = this.strength(b, mp);
+    for (const a of ours) s += this.synergy(b, a, mp);
+    for (const e of theirs) s += this.matchup(b, e, mp);
+    return s;
+  }
+
+  // -- pick model -------------------------------------------------------------
+
+  /** P(next pick = b) for the side owning `allies`, as a typical Masters player. */
+  pickProbs(allies: readonly number[], enemies: readonly number[], unavailable: ReadonlySet<number>, mp: number): Map<number, number> {
+    const scores = new Map<number, number>();
+    let top = -Infinity;
+    for (let b = 0; b < this.B; b++) {
+      if (unavailable.has(b)) continue;
+      let s = this.logBase[b][mp];
+      for (const a of allies) s += this.alpha * this.ally[b * this.B + a];
+      for (const e of enemies) s += this.beta * this.enemy[b * this.B + e];
+      scores.set(b, s);
+      if (s > top) top = s;
+    }
+    let z = 0;
+    for (const [b, s] of scores) {
+      const e = Math.exp(s - top);
+      scores.set(b, e);
+      z += e;
+    }
+    for (const [b, e] of scores) scores.set(b, e / z);
+    return scores;
+  }
+
+  gamesOnMap(b: number, mp: number): number {
+    return this.games?.brawler_map[b]?.[mp] ?? 0;
+  }
+
+  /** Brawlers changed in the latest patch, for the "recalibrating" badge. */
+  recentlyChanged(): Map<string, string> {
+    const latest = this.data.patches?.at(-1);
+    return new Map(Object.entries(latest?.changes ?? {}));
+  }
+}

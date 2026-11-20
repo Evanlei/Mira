@@ -380,6 +380,25 @@ def cmd_bans(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_publish(args: argparse.Namespace) -> int:
+    import shutil
+    from pathlib import Path
+
+    from .engine import fixtures
+
+    src, web = Path(args.model), Path(args.web)
+    if not src.is_file():
+        raise SystemExit(f"error: {src} not found: run `mira train` first.")
+    if not (web / "package.json").is_file():
+        raise SystemExit(f"error: {web} doesn't look like the website folder.")
+    dest = web / "public" / "model.json"
+    shutil.copyfile(src, dest)
+    n = fixtures.write(str(dest), str(web / "src" / "engine" / "parity.fixtures.json"))
+    print(f"Copied {src} to {dest} and wrote {n} parity cases.")
+    print(f"Next: (cd {web} && npm test), then commit {dest} to deploy.")
+    return 0
+
+
 def cmd_export(args: argparse.Namespace) -> int:
     conn = _open_db(args)
     where, params = ("WHERE b.battle_type = ?", [args.type]) if args.type else ("", [])
@@ -500,6 +519,11 @@ def build_parser() -> argparse.ArgumentParser:
     draft_args(sp)
     sp.add_argument("-n", type=int, default=5, help="number of suggestions (default: 5)")
     sp.set_defaults(func=cmd_bans)
+
+    sp = sub.add_parser("publish", help="copy model.json into the website and refresh its parity tests")
+    sp.add_argument("--model", default="model.json", help="trained model (default: %(default)s)")
+    sp.add_argument("--web", default="web", help="website folder (default: %(default)s)")
+    sp.set_defaults(func=cmd_publish)
 
     sp = sub.add_parser("export", help="write one CSV row per match")
     sp.add_argument("--out", default="matches.csv", help="output path, or - for stdout")

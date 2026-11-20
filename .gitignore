@@ -8,4 +8,4 @@ __pycache__/
 .venv/
 dist/
 .DS_Store
-model.json
+/model.json

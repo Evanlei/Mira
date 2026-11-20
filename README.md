@@ -179,10 +179,17 @@ the website's port.
 estimates and assumes the opponent picks like a typical player, not a counter-picker. Trust the
 ranking more than the absolute %.
 
+## Website
+
+The draft coach site lives in [`web/`](web/README.md): Next.js, a static page, with the engine
+running in the browser. After retraining, run `uv run mira publish` to copy the model into the site
+and refresh its parity tests.
+
 ## Tests
 
 ```sh
 uv run python -m unittest discover -s tests
+(cd web && npm test)
 ```
 
 The tests are offline. They use a fake API client, sample battle logs (`tests/fakes.py`) and a

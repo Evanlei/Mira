@@ -1,0 +1,174 @@
+@import "tailwindcss";
+
+/* Design tokens. Values for shadows, outlines and motion follow jmo-workflow:better-ui. */
+:root {
+  --bg: oklch(0.985 0.002 260);
+  --surface: oklch(1 0 0);
+  --surface-2: oklch(0.965 0.004 260);
+  --surface-hover: oklch(0.945 0.005 260);
+  --raised: oklch(1 0 0); /* selected segment: lighter than its track in both themes */
+  --avatar-fg: 0.5;
+  --text: oklch(0.2 0.01 260);
+  --text-muted: oklch(0.5 0.01 260);
+  --text-faint: oklch(0.65 0.01 260);
+  --accent: oklch(0.58 0.2 285);
+  --accent-soft: oklch(0.58 0.2 285 / 0.12);
+  --us: oklch(0.6 0.17 250);
+  --us-soft: oklch(0.6 0.17 250 / 0.12);
+  --them: oklch(0.62 0.2 25);
+  --them-soft: oklch(0.62 0.2 25 / 0.12);
+  --warn: oklch(0.7 0.15 75);
+  --warn-soft: oklch(0.7 0.15 75 / 0.16);
+  --divider: oklch(0 0 0 / 0.08);
+  --shadow-border:
+    0px 0px 0px 1px oklch(0 0 0 / 0.06),
+    0px 1px 2px -1px oklch(0 0 0 / 0.06),
+    0px 2px 4px 0px oklch(0 0 0 / 0.04);
+  --shadow-border-hover:
+    0px 0px 0px 1px oklch(0 0 0 / 0.08),
+    0px 1px 2px -1px oklch(0 0 0 / 0.08),
+    0px 2px 4px 0px oklch(0 0 0 / 0.06);
+  --shadow-sheet: 0 -8px 32px oklch(0 0 0 / 0.12), 0 0 0 1px oklch(0 0 0 / 0.06);
+  --image-outline: oklch(0 0 0 / 0.1);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: oklch(0.16 0.008 265);
+    --surface: oklch(0.205 0.01 265);
+    --surface-2: oklch(0.245 0.012 265);
+    --surface-hover: oklch(0.27 0.012 265);
+    --raised: oklch(0.32 0.012 265);
+    --avatar-fg: 0.82;
+    --text: oklch(0.96 0.005 265);
+    --text-muted: oklch(0.72 0.01 265);
+    --text-faint: oklch(0.58 0.01 265);
+    --accent: oklch(0.72 0.16 285);
+    --accent-soft: oklch(0.72 0.16 285 / 0.16);
+    --us: oklch(0.72 0.14 250);
+    --us-soft: oklch(0.72 0.14 250 / 0.16);
+    --them: oklch(0.72 0.16 25);
+    --them-soft: oklch(0.72 0.16 25 / 0.16);
+    --warn: oklch(0.8 0.13 80);
+    --warn-soft: oklch(0.8 0.13 80 / 0.16);
+    --divider: oklch(1 0 0 / 0.08);
+    --shadow-border: 0 0 0 1px oklch(1 0 0 / 0.08);
+    --shadow-border-hover: 0 0 0 1px oklch(1 0 0 / 0.13);
+    --shadow-sheet: 0 0 0 1px oklch(1 0 0 / 0.1);
+    --image-outline: oklch(1 0 0 / 0.1);
+    color-scheme: dark;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-hover: var(--surface-hover);
+  --color-raised: var(--raised);
+  --color-text: var(--text);
+  --color-muted: var(--text-muted);
+  --color-faint: var(--text-faint);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-us: var(--us);
+  --color-us-soft: var(--us-soft);
+  --color-them: var(--them);
+  --color-them-soft: var(--them-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-divider: var(--divider);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Component classes live in the components layer so Tailwind utilities (bg-*, etc.) can override them. */
+@layer components {
+  /* Elevated surface: shadow ring for depth, transparent border for forced-colors mode. */
+  .surface {
+    background-color: var(--surface);
+    border: 1px solid transparent;
+    box-shadow: var(--shadow-border);
+  }
+
+  /* Press feedback: scale to 0.96 over 150ms ease-out; never when disabled. */
+  .pressable {
+    transition-property: scale, background-color, box-shadow;
+    transition-duration: 150ms;
+    transition-timing-function: ease-out;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .pressable:not(:disabled):active {
+      scale: 0.96;
+    }
+  }
+  @media (hover: hover) {
+    .pressable.surface:not(:disabled):hover {
+      box-shadow: var(--shadow-border-hover);
+    }
+  }
+
+  /* Brawler avatar: hue per brawler (--h), lightness per theme. */
+  .avatar {
+    background: oklch(0.62 0.13 var(--h) / 0.18);
+    color: oklch(var(--avatar-fg) 0.15 var(--h));
+    box-shadow: inset 0 0 0 1px oklch(0.62 0.13 var(--h) / 0.3);
+  }
+}
+
+/* First-load entrance: staggered 100ms, opacity + 4px blur + 12px rise over 300ms ease-out.
+   The hidden state lives only in the keyframe, so content stays visible if it never runs. */
+.enter {
+  animation: enter-fade 300ms ease-out both;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .enter {
+    animation-name: enter-rise;
+  }
+}
+.enter-1 { animation-delay: 100ms; }
+.enter-2 { animation-delay: 200ms; }
+.enter-3 { animation-delay: 300ms; }
+@keyframes enter-fade {
+  from { opacity: 0; }
+}
+@keyframes enter-rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+    filter: blur(4px);
+  }
+}
+
+/* Bottom sheet: transitions (not keyframes) so closing mid-open reverses smoothly. */
+.sheet-backdrop {
+  transition: opacity 150ms ease-out;
+}
+.sheet {
+  transition: opacity 150ms ease-out;
+  overscroll-behavior: contain;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .sheet {
+    transition-property: opacity, translate;
+    transition-duration: 300ms;
+    transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+  }
+  /* Exit is shorter than enter: a transition uses the timing of the state it moves to. */
+  .sheet[data-open="false"] {
+    translate: 0 24px;
+    transition-duration: 150ms;
+    transition-timing-function: ease-out;
+  }
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
