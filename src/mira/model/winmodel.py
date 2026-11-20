@@ -3,9 +3,12 @@
 logit = Σ_team0 strength − Σ_team1 strength + same-team synergy pairs (team0 − team1)
         + cross-team matchups (team0 vs team1)
 
-strength[b] on a map = global[b] + per-mode[b, mode] + per-map[b, map], each block with
-its own L2 penalty, which gives map → mode → global shrinkage: a per-map term only grows
-when that map has the games to support it. Synergy and matchup work the same way: a pair term
+strength[b] on a map = global[b] + per-mode[b, mode] + per-map[b, map]
+                       + per-tier[b, tier] + per-tier-mode[b, tier, mode],
+each block with its own L2 penalty, which gives map → mode → global shrinkage: a per-map term
+only grows when that map has the games to support it. The tier terms work the same way: a rank
+tier (Legendary .. Masters III+, by the lobby's average rank) only moves a brawler's strength
+away from the shared value when that tier's games support it; synergies and matchups are shared. Synergy and matchup work the same way: a pair term
 shared by all modes plus a per-mode adjustment (synergy_mode / matchup_mode). There is no
 intercept, so swapping the teams exactly flips the prediction.
 """
@@ -17,13 +20,15 @@ from itertools import combinations
 
 import numpy as np
 
-from .dataset import Matches
+from .dataset import TIERS, Matches
 
-BLOCKS = ("global", "mode", "map", "synergy", "synergy_mode", "matchup", "matchup_mode")
+BLOCKS = ("global", "mode", "map", "synergy", "synergy_mode", "matchup", "matchup_mode", "tier", "tier_mode")
+N_COLS = 60
 # Penalties are in pseudo-games. Defaults = what tuning picked on ~12k real matches; weaker
 # settings overfit pure noise (see tests/test_model.py).
 DEFAULT_L2 = {"global": 3.0, "mode": 30.0, "map": 100.0,
-              "synergy": 300.0, "synergy_mode": 1000.0, "matchup": 300.0, "matchup_mode": 1000.0}
+              "synergy": 300.0, "synergy_mode": 1000.0, "matchup": 300.0, "matchup_mode": 1000.0,
+              "tier": 100.0, "tier_mode": 300.0}
 
 _PAIRS_IN_TEAM = list(combinations(range(3), 2))  # 3 pairs
 
@@ -39,6 +44,7 @@ class Layout:
     n_brawlers: int
     n_modes: int
     n_maps: int
+    n_tiers: int = len(TIERS)
     offsets: dict[str, int] = field(default_factory=dict)
     sizes: dict[str, int] = field(default_factory=dict)
 
@@ -52,6 +58,8 @@ class Layout:
             "synergy_mode": B * B * self.n_modes,
             "matchup": B * B,
             "matchup_mode": B * B * self.n_modes,
+            "tier": B * self.n_tiers,
+            "tier_mode": B * self.n_tiers * self.n_modes,
         }
         off = 0
         for k in BLOCKS:
@@ -67,11 +75,12 @@ class Layout:
 
 
 def features(m: Matches, layout: Layout) -> tuple[np.ndarray, np.ndarray]:
-    """Sparse design as (idx, sign), each (n, 48): logit_i = Σ_k w[idx[i,k]] * sign[i,k]."""
-    B, nm, nmap = layout.n_brawlers, layout.n_modes, layout.n_maps
+    """Sparse design as (idx, sign), each (n, 60): logit_i = Σ_k w[idx[i,k]] * sign[i,k]."""
+    B, nm, nmap, nt = layout.n_brawlers, layout.n_modes, layout.n_maps, layout.n_tiers
     o = layout.offsets
     t0, t1 = m.teams[:, 0, :], m.teams[:, 1, :]
     mode, mp = m.mode_idx[:, None], m.map_idx[:, None]
+    tier = m.tier_idx()[:, None]
     n = len(m)
     cols_i, cols_s = [], []
 
@@ -83,6 +92,8 @@ def features(m: Matches, layout: Layout) -> tuple[np.ndarray, np.ndarray]:
         add(o["global"] + team, sign)
         add(o["mode"] + team * nm + mode, sign)
         add(o["map"] + team * nmap + mp, sign)
+        add(o["tier"] + team * nt + tier, sign)
+        add(o["tier_mode"] + (team * nt + tier) * nm + mode, sign)
         for a, b in _PAIRS_IN_TEAM:
             pi = _pair_index(team[:, a], team[:, b], B)[:, None]
             # Same brawler twice on a team can't happen in Ranked; guard anyway.
@@ -103,7 +114,7 @@ def features(m: Matches, layout: Layout) -> tuple[np.ndarray, np.ndarray]:
 
     idx = np.concatenate(cols_i, axis=1)
     sgn = np.concatenate(cols_s, axis=1)
-    assert idx.shape == (n, 48)
+    assert idx.shape == (n, N_COLS)
     return idx, sgn
 
 
@@ -204,4 +215,6 @@ class WinModel:
             "synergy_mode": self.layout.block(self.w, "synergy_mode").reshape(B, B, nm),
             "matchup": self.layout.block(self.w, "matchup").reshape(B, B),
             "matchup_mode": self.layout.block(self.w, "matchup_mode").reshape(B, B, nm),
+            "tier": self.layout.block(self.w, "tier").reshape(B, self.layout.n_tiers),
+            "tier_mode": self.layout.block(self.w, "tier_mode").reshape(B, self.layout.n_tiers, nm),
         }

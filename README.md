@@ -176,6 +176,15 @@ the crawler itself has no dependencies.
   `--min-lobby-rank` (default Legendary I) are not loaded. The test set and the baselines use
   all-Masters matches only, and `evaluate` also reports Mira trained on all-Masters matches only: keep
   the lower lobbies only while they beat that. `--min-lobby-rank masters1` trains on Masters only.
+- **Rank tiers**: each match gets a tier from its lobby's average rank (Legendary, Masters I,
+  Masters II, Masters III+). The win model adds per-tier brawler strength terms (shrunk toward the
+  shared value by their own L2) and the pick model keeps per-tier pick rates per map. `evaluate`
+  prints a per-tier comparison against one shared model; with today's data the tier strength terms
+  don't help at Masters, so `train --tier-l2 1000` keeps them tight, while per-tier pick rates do
+  help. `mira suggest --tier mastersiii` (or the web engine's `withTier`) drafts for a tier.
+- **Pro scrims**: the crawler also stores friendly 3v3s where at least 4 of the 6 players are pros
+  (seen at Pro rank, or listed in the seeds file), as battle type `friendly`; training ignores them
+  for now (`crawl --no-pro-scrims` turns this off).
 - **Baselines** (`src/mira/model/baselines.py`): their statistics come from training data, and their
   weights are fitted out-of-fold so they aren't overconfident. The DeepDraft-style score rebuilds
   DeepDraft's published method (base + synergy ± counters − role conflict) with fitted weights.

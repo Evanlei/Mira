@@ -231,3 +231,38 @@ class LobbyRankTests(unittest.TestCase):
         r = readiness.compute(self.conn, target=10)
         self.assertEqual(sum(m.matches for m in r.pool), 1)
         self.assertEqual(sum(m.matches for m in readiness.compute(self.conn, min_lobby_rank=16).pool), 2)
+
+
+class ProScrimTests(unittest.TestCase):
+    """Friendly 3v3s are stored only when 4+ of the 6 players are pros."""
+
+    def setUp(self):
+        self.conn = mem_db()
+        pros = ["#PA1", "#PA2", "#PA3", "#PA4"]
+        for t in pros:
+            db.enqueue_player(self.conn, t, crawler.PRIORITY_RANKED, rank=22, ranked=True)
+        def scrim(time, others):
+            return entry_3v3(time=time, btype="friendly", teams=[
+                [player("#PA1", "SHELLY", 16000000), player("#PA2", "COLT", 16000001), player(others[0], "BULL", 16000002)],
+                [player("#PA3", "BROCK", 16000003), player(others[1], "RICO", 16000004), player(others[2], "SPIKE", 16000005)]])
+        self.client = FakeClient({"#PA1": [
+            scrim("20261118T100000.000Z", ["#PA4", "#X1", "#X2"]),   # 4 pros: a scrim
+            scrim("20261118T090000.000Z", ["#X1", "#X2", "#X3"]),     # 3 pros: casual, skipped
+        ]})
+
+    def test_only_pro_friendlies_are_stored(self):
+        stats = crawler.crawl(self.conn, self.client, max_players=1, min_rank=16, ranked_only=True,
+                              match_min_rank=16, pro_scrims=True)
+        rows = [tuple(r) for r in self.conn.execute("SELECT battle_time, battle_type FROM battles")]
+        self.assertEqual(rows, [("2026-11-18T10:00:00Z", "friendly")])
+        self.assertEqual(stats.scrims_new, 1)
+
+    def test_off_by_flag(self):
+        crawler.crawl(self.conn, self.client, max_players=1, min_rank=16, ranked_only=True, match_min_rank=16)
+        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM battles").fetchone()[0], 0)
+
+    def test_seeds_count_as_pros(self):
+        db.enqueue_player(self.conn, "#X1", crawler.PRIORITY_SEED, seed=True)
+        crawler.crawl(self.conn, self.client, max_players=1, min_rank=16, ranked_only=True,
+                      match_min_rank=16, pro_scrims=True)
+        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM battles").fetchone()[0], 2)  # #X1 makes the second one 4 pros

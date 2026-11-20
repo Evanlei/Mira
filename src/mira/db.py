@@ -178,6 +178,18 @@ def earliest_due(
     return row[0]
 
 
+PRO_RANK = 22  # "Pro", the top Ranked rank
+
+
+def count_pros(conn: sqlite3.Connection, tags: list[str]) -> int:
+    """How many of these players we have seen at Pro rank, or hand-listed as pros (seeds)."""
+    marks = ",".join("?" * len(tags))
+    return conn.execute(
+        f"SELECT COUNT(*) FROM players WHERE tag IN ({marks}) AND (max_rank >= ? OR is_seed = 1)",
+        (*tags, PRO_RANK),
+    ).fetchone()[0]
+
+
 def mark_crawled(
     conn: sqlite3.Connection,
     tag: str,

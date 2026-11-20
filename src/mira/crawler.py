@@ -34,6 +34,12 @@ TURNOVER_FRACTION = 0.7
 IDLE_FRACTION = 0.5
 DEFAULT_WORKERS = 8
 
+# Pro scrims: pros practise in friendly rooms, which the battle log reports as type "friendly".
+# A friendly 3v3 is kept only when at least this many of its six players are pros (seen at Pro
+# rank, or listed in the seeds file), so casual friendlies between friends are left out.
+SCRIM_TYPE = "friendly"
+SCRIM_MIN_PROS = 4
+
 # In Ranked battles the API puts the player's rank in brawler.trophies instead of
 # trophies. Assumed encoding (verify with `mira stats`): 1-3 Bronze I-III, 4-6 Silver,
 # 7-9 Gold, 10-12 Diamond, 13-15 Mythic, 16-18 Legendary, 19-21 Masters, 22 Pro.
@@ -139,6 +145,7 @@ class CrawlStats:
     battles_new: int = 0
     battles_other_types: int = 0  # 3v3 but not a ranked type, so not stored
     battles_below_rank: int = 0   # ranked, but not all six players at match_min_rank
+    scrims_new: int = 0           # friendly 3v3s between pros, stored as type "friendly"
     players_discovered: int = 0
     players_below_rank: int = 0
     players_unranked_skipped: int = 0
@@ -154,6 +161,7 @@ class CrawlStats:
             f"{self.battles_new} new battles"
             + (f" ({self.battles_other_types} non-ranked not stored)" if self.battles_other_types else "")
             + (f" ({self.battles_below_rank} below match min rank not stored)" if self.battles_below_rank else "")
+            + (f"; {self.scrims_new} pro scrims" if self.scrims_new else "")
             + f"; queue +{self.players_discovered} players"
             + (f" (skipped {self.players_below_rank} below min rank, "
                f"{self.players_unranked_skipped} from non-ranked games)"
@@ -201,6 +209,7 @@ def crawl_player(
     ranked_only: bool = False,
     match_min_rank: int | None = None,
     recrawl_after: float = DEFAULT_RECRAWL_SECONDS,
+    pro_scrims: bool = False,
 ) -> None:
     """Fetch one player's log, store new 3v3 battles, and grow the queue.
 
@@ -217,7 +226,7 @@ def crawl_player(
         raise
     except ApiError as e:
         entries = e
-    store_log(conn, tag, entries, stats, ranked_types, min_rank, ranked_only, match_min_rank, recrawl_after)
+    store_log(conn, tag, entries, stats, ranked_types, min_rank, ranked_only, match_min_rank, recrawl_after, pro_scrims)
 
 
 def store_log(
@@ -230,8 +239,11 @@ def store_log(
     ranked_only: bool = False,
     match_min_rank: int | None = None,
     recrawl_after: float = DEFAULT_RECRAWL_SECONDS,
+    pro_scrims: bool = False,
 ) -> None:
-    """Store one fetched log (or record why fetching it failed). See crawl_player."""
+    """Store one fetched log (or record why fetching it failed). See crawl_player.
+
+    With ``pro_scrims``, friendly 3v3s with at least SCRIM_MIN_PROS pros are stored too."""
     try:
         if isinstance(entries, BaseException):
             raise entries
@@ -255,6 +267,10 @@ def store_log(
         if battle is None:
             continue
         stats.battles_parsed += 1
+        if pro_scrims and battle.battle_type == SCRIM_TYPE and len(battle.players) == 6:
+            if db.count_pros(conn, battle.tags) >= SCRIM_MIN_PROS and db.insert_battle(conn, battle, source_tag=tag):
+                stats.scrims_new += 1
+            continue
         if ranked_only and battle.battle_type not in ranked_types:
             stats.battles_other_types += 1
             continue
@@ -320,6 +336,7 @@ def crawl(
     progress_every: int = 25,
     workers: int = 1,
     watch: bool = False,
+    pro_scrims: bool = False,
     sleep: Callable[[float], None] = time.sleep,
     max_idle_sleep: float = 300.0,
 ) -> CrawlStats:
@@ -331,7 +348,7 @@ def crawl(
     """
     stats = CrawlStats()
     deadline = None if max_minutes is None else time.monotonic() + max_minutes * 60
-    opts = (ranked_types, min_rank, ranked_only, match_min_rank, recrawl_after)
+    opts = (ranked_types, min_rank, ranked_only, match_min_rank, recrawl_after, pro_scrims)
     in_flight: dict[Future, str] = {}
     last_progress = 0
 

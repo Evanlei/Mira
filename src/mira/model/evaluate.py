@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import itertools
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
 
 from . import patches as patchlog
 from .baselines import Coin, DeepDraftStyle, MapWinRate
-from .dataset import DEFAULT_RANK_FACTOR, Matches
+from .dataset import DEFAULT_RANK_FACTOR, DEFAULT_TOP_BOOST, Matches
 from .winmodel import DEFAULT_L2, WinModel
 
 # Candidate L2 values per group, in pseudo-games. "pair" sets synergy and matchup (all-mode terms);
@@ -20,6 +20,7 @@ L2_GRID = {
     "mode": [30.0, 100.0, 300.0],
     "map": [10.0, 30.0, 100.0, 300.0],
     "pair": [100.0, 300.0, 1000.0, 3000.0],
+    "tier": [30.0, 100.0, 300.0, 1000.0],
 }
 
 
@@ -88,20 +89,43 @@ def time_split(m: Matches, test_days: float = 7.0, max_test_frac: float = 0.3,
                   f"the history is too short for a {test_days:g}-day test window")
 
 
+def masters_split(m: Matches, test_days: float = 7.0) -> tuple[np.ndarray, np.ndarray, str]:
+    """(train mask, test mask, description). The test set is the newest all-Masters matches
+    (chosen by ``time_split`` on the all-Masters matches alone); training gets every match,
+    of any lobby rank, played no later than the newest all-Masters match left out of the test.
+
+    Splitting on all matches instead would leave few all-Masters games to test on whenever
+    lower lobbies dominate the recent data (as after a ranked reset)."""
+    mm = m.masters_mask()
+    if mm.all():
+        test = time_split(m, test_days)
+        return ~test[0], test[0], test[1]
+    masters = m.subset(mm)
+    mtest, desc = time_split(masters, test_days)
+    if not mtest.any():
+        return np.ones(len(m), dtype=bool), np.zeros(len(m), dtype=bool), desc
+    cutoff = min(t for t, x in zip(masters.times, mtest) if x)
+    times = np.array(m.times)
+    test = mm & (times >= cutoff)
+    train = times < cutoff
+    return train, test, f"all-Masters matches: {desc}; training uses every match before {cutoff}"
+
+
 # -- training -----------------------------------------------------------------
 
 def weights_for(m: Matches, patches, half_life_days: float, pre_patch_factor: float,
-                rank_factor: float = DEFAULT_RANK_FACTOR) -> np.ndarray:
-    """Recency x patch x lobby-rank weight per match."""
+                rank_factor: float = DEFAULT_RANK_FACTOR, top_boost: float = DEFAULT_TOP_BOOST) -> np.ndarray:
+    """Recency x patch x lobby-rank (low lobbies down, high lobbies up) weight per match."""
     return np.array(patchlog.match_weights(
         m.times, m.names_per_match(), patches, reference=m.times[-1],
-        half_life_days=half_life_days, pre_patch_factor=pre_patch_factor)) * m.rank_weights(rank_factor)
+        half_life_days=half_life_days, pre_patch_factor=pre_patch_factor)) * m.rank_weights(rank_factor) * m.top_weights(top_boost)
 
 
 def _l2_from(choice: dict) -> dict:
     pair = choice["pair"]
     return {**DEFAULT_L2, "global": choice["global"], "mode": choice["mode"], "map": choice["map"],
-            "synergy": pair, "matchup": pair, "synergy_mode": 3 * pair, "matchup_mode": 3 * pair}
+            "synergy": pair, "matchup": pair, "synergy_mode": 3 * pair, "matchup_mode": 3 * pair,
+            "tier": choice.get("tier", DEFAULT_L2["tier"]), "tier_mode": 3 * choice.get("tier", DEFAULT_L2["tier"])}
 
 
 def tune_l2(train: Matches, weights: np.ndarray, val_frac: float = 0.2, passes: int = 2) -> tuple[dict, list]:
@@ -118,7 +142,7 @@ def tune_l2(train: Matches, weights: np.ndarray, val_frac: float = 0.2, passes: 
             cache[key] = log_loss(val_part.y, model.predict(val_part)).mean()
         return cache[key]
 
-    choice = {"global": 30.0, "mode": 100.0, "map": 100.0, "pair": 1000.0}
+    choice = {"global": 30.0, "mode": 100.0, "map": 100.0, "pair": 1000.0, "tier": 100.0}
     for _ in range(passes):
         for group, values in L2_GRID.items():
             choice[group] = min(values, key=lambda v: val_loss({**choice, group: v}))
@@ -139,19 +163,63 @@ class Report:
     n_train_masters: int = 0
 
 
+@dataclass
+class TierRow:
+    name: str
+    n: int
+    shared: float   # log loss, one model for all tiers
+    tiered: float   # log loss, with per-tier strength terms
+    diff: tuple[float, float, float]  # (mean, lo, hi) of tiered - shared; negative = tiers help
+    pick_shared: float  # pick model top-5, overall pick rates
+    pick_tiered: float  # pick model top-5, this tier's pick rates
+
+
+def tier_report(m: Matches, patches=(), l2: dict | None = None, test_days: float = 7.0,
+                half_life_days: float = 28.0, pre_patch_factor: float = 0.1,
+                rank_factor: float = DEFAULT_RANK_FACTOR, seed: int = 0, pick_sample: int = 600) -> list[TierRow]:
+    """Per rank tier: does the tier-aware model beat one shared model on that tier's held-out games?
+
+    Same cutoff as ``run``; the test set here is every match after it, grouped by tier."""
+    from .dataset import TIER_NAMES
+    from .pickmodel import PickModel, evaluate as pick_eval
+
+    train_mask, _, _ = masters_split(m, test_days)
+    train, test = m.subset(train_mask), m.subset(~train_mask)
+    w = weights_for(train, list(patches), half_life_days, pre_patch_factor, rank_factor)
+    l2 = dict(l2 or DEFAULT_L2)
+    tiered = WinModel.fit(train, w, l2).predict(test)
+    # The shared model: every match in one tier, so the tier terms can't tell tiers apart.
+    # (Pinning them with a huge L2 instead leaves the problem too ill-conditioned for L-BFGS.)
+    one_tier = lambda x: replace(x, lobby_mean=None)  # noqa: E731
+    shared = WinModel.fit(one_tier(train), w, l2).predict(one_tier(test))
+    pm = PickModel.fit(train, w)
+    pm.alpha = pm.beta = 0.25
+    tiers = test.tier_idx()
+    rows = []
+    for t, name in enumerate(TIER_NAMES):
+        sel = tiers == t
+        if sel.sum() < 50:
+            continue
+        a, b = log_loss(test.y[sel], tiered[sel]), log_loss(test.y[sel], shared[sel])
+        sample = test.subset(np.flatnonzero(sel)[:pick_sample])
+        rows.append(TierRow(name, int(sel.sum()), b.mean(), a.mean(), paired_bootstrap(a, b, seed=seed),
+                            pick_eval(pm, sample)["top5"], pick_eval(pm, sample, tier=t)["top5"]))
+    return rows
+
+
 MASTERS_ONLY = "Mira, all-Masters lobbies only"
 
 
 def run(m: Matches, patches=(), test_days: float = 7.0, half_life_days: float = 28.0,
         pre_patch_factor: float = 0.1, tune: bool = True, seed: int = 0,
-        rank_factor: float = DEFAULT_RANK_FACTOR) -> Report:
+        rank_factor: float = DEFAULT_RANK_FACTOR, top_boost: float = DEFAULT_TOP_BOOST) -> Report:
     """Train on everything before the split (lower lobbies weighted down); test only on
     all-Masters matches after it. Baselines see all-Masters training matches only, as
     before; "Mira, all-Masters only" shows whether the lower lobbies help."""
-    test_mask, split_desc = time_split(m, test_days)
-    train, test = m.subset(~test_mask), m.subset(test_mask & m.masters_mask())
+    train_mask, test_mask, split_desc = masters_split(m, test_days)
+    train, test = m.subset(train_mask), m.subset(test_mask)
     masters_train = train.subset(train.masters_mask())
-    w_train = weights_for(train, list(patches), half_life_days, pre_patch_factor, rank_factor)
+    w_train = weights_for(train, list(patches), half_life_days, pre_patch_factor, rank_factor, top_boost)
     l2 = tune_l2(train, w_train)[0] if tune else dict(DEFAULT_L2)
     model = WinModel.fit(train, w_train, l2)
 

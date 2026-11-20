@@ -95,6 +95,7 @@ def cmd_crawl(args: argparse.Namespace) -> int:
             progress=lambda s: print("  " + s.summary(), flush=True),
             workers=args.workers,
             watch=args.watch,
+            pro_scrims=not args.no_pro_scrims,
         )
     print("Done: " + stats.summary() + f"; {client.request_count} API requests")
     if min_rank:
@@ -234,12 +235,13 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
     n_masters = int(m.masters_mask().sum())
     print(f"Evaluating on {len(m):,} Ranked matches ({n_masters:,} all-Masters; {m.times[0]} .. {m.times[-1]}), "
           f"{len(plog)} patches in {args.patches}.")
-    print(f"Lower lobbies weigh {args.rank_factor:g} per rank below Masters I; the test set is all-Masters only.")
+    print(f"Lower lobbies weigh {args.rank_factor:g} per rank below Masters I, higher ones {args.top_boost:g} per rank "
+          "above (by the lobby average); the test set is all-Masters only.")
     if not args.no_tune:
         print("Tuning L2 strengths (coordinate descent on the newest 20% of training matches)...", flush=True)
     r = evaluate.run(m, plog, test_days=args.test_days, half_life_days=args.half_life,
                      pre_patch_factor=args.pre_patch_factor, tune=not args.no_tune,
-                     rank_factor=args.rank_factor)
+                     rank_factor=args.rank_factor, top_boost=args.top_boost)
     print(f"\nTest split: {r.split}. Train {r.n_train:,} ({r.n_train_masters:,} all-Masters) / "
           f"test {r.n_test:,} all-Masters matches.")
     print("Chosen L2: " + ", ".join(f"{k}={v:g}" for k, v in r.l2.items()))
@@ -253,10 +255,19 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
         print(f"  {name.ljust(w)}  {d:+.4f}  [{lo:+.4f}, {hi:+.4f}]  {verdict}")
     print("\nMVP bar (spec §8): " + ("PASS" if r.passes else "not met: " + "; ".join(r.reasons)))
 
+    print("\nPer rank tier (by the lobby's average rank): one shared model vs per-tier strength and pick rates")
+    print(f"  {'tier'.ljust(13)} {'matches':>8}  {'shared':>7}  {'tiered':>7}  {'diff [95% CI]':<26} {'pick top-5':>16}")
+    for row in evaluate.tier_report(m, plog, r.l2, test_days=args.test_days, half_life_days=args.half_life,
+                                    pre_patch_factor=args.pre_patch_factor, rank_factor=args.rank_factor):
+        d, lo, hi = row.diff
+        verdict = "better" if hi < 0 else ("worse" if lo > 0 else "same")
+        print(f"  {row.name.ljust(13)} {row.n:>8,}  {row.shared:7.4f}  {row.tiered:7.4f}  "
+              f"{d:+.4f} [{lo:+.4f}, {hi:+.4f}] {verdict:<6}  {row.pick_shared:6.1%} -> {row.pick_tiered:6.1%}")
+
     from .model import pickmodel
-    from .model.evaluate import time_split
-    mask, _ = time_split(m, args.test_days)
-    train, test = m.subset(~mask), m.subset(mask & m.masters_mask())
+    from .model.evaluate import masters_split
+    train_mask, test_mask, _ = masters_split(m, args.test_days)
+    train, test = m.subset(train_mask), m.subset(test_mask)
     w_tr = train.rank_weights(args.rank_factor)
     k = int(round(len(train) * 0.8))
     val = train.subset(np.flatnonzero(train.masters_mask()[k:]) + k)
@@ -283,12 +294,14 @@ def cmd_train(args: argparse.Namespace) -> int:
     from .model.winmodel import DEFAULT_L2, WinModel
 
     m, plog = _load_training_data(args)
-    w = evaluate.weights_for(m, plog, args.half_life, args.pre_patch_factor, args.rank_factor)
+    w = evaluate.weights_for(m, plog, args.half_life, args.pre_patch_factor, args.rank_factor, args.top_boost)
     if args.no_tune:
         l2 = dict(DEFAULT_L2)
     else:
         print("Tuning L2 strengths on the newest 20% of matches...", flush=True)
         l2 = evaluate.tune_l2(m, w)[0]
+    if args.tier_l2 is not None:
+        l2.update(tier=args.tier_l2, tier_mode=3 * args.tier_l2)
     print("L2: " + ", ".join(f"{k}={v:g}" for k, v in l2.items()))
     model = WinModel.fit(m, w, l2)
     from .model.pickmodel import PickModel, tune as tune_pick
@@ -302,7 +315,8 @@ def cmd_train(args: argparse.Namespace) -> int:
         "pick_model": export.pick_model_dict(pick),
         "patches": [{"date": p.date, "changes": p.changes} for p in plog],
         "weighting": {"half_life_days": args.half_life, "pre_patch_factor": args.pre_patch_factor,
-                      "min_lobby_rank": args.min_lobby_rank, "rank_factor": args.rank_factor},
+                      "min_lobby_rank": args.min_lobby_rank, "rank_factor": args.rank_factor,
+                      "top_boost": args.top_boost},
     })
     size = export.write(args.out, data)
     print(f"Wrote {args.out} ({size / 1e6:.2f} MB) from {len(m):,} matches "
@@ -315,6 +329,12 @@ def _engine(args):
     from .engine.model import Model
     try:
         model = Model.load(args.model)
+        if args.tier is not None:
+            names = [n.lower().replace(" ", "").replace("+", "") for n in model.tiers]
+            key = args.tier.lower().replace(" ", "").replace("+", "")
+            if key not in names:
+                raise SystemExit(f"error: unknown tier {args.tier!r}; one of: {', '.join(model.tiers)}")
+            model = Model(model.data, tier=names.index(key))
     except FileNotFoundError:
         raise SystemExit(f"error: {args.model} not found: run `mira train` first.") from None
     if "pick_model" not in model.data:
@@ -476,6 +496,8 @@ def build_parser() -> argparse.ArgumentParser:
                          "before their 25-game log turns over (default: 6)")
     sp.add_argument("--workers", type=int, default=crawler.DEFAULT_WORKERS,
                     help="battle logs fetched in parallel; --rate still caps requests (default: %(default)s)")
+    sp.add_argument("--no-pro-scrims", action="store_true",
+                    help="don't store friendly 3v3s where 4+ of the 6 players are pros (Pro rank or seeds)")
     sp.add_argument("--watch", action="store_true",
                     help="run until stopped: when nobody is due, wait for the next player instead of exiting")
     sp.add_argument("--rate", type=float, default=10.0, help="max API requests per second (default: 10)")
@@ -519,6 +541,9 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument("--min-lobby-rank", type=_rank_arg, default=16,
                         help="ignore matches whose lowest player is below this rank (default: legendary1 = 16; "
                              "masters1 = 19 trains on all-Masters lobbies only)")
+        sp.add_argument("--top-boost", type=float, default=1.0,
+                        help="weight multiplier per rank step a lobby's average sits above Masters I, up to "
+                             "Pro, so games with Masters III and Pro players count more; 1 = off (default: %(default)s)")
         sp.add_argument("--rank-factor", type=float, default=0.5,
                         help="weight multiplier per rank step a lobby sits "
                              "below Masters I (default: %(default)s)")
@@ -531,10 +556,16 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("train", help="fit the win model on all data and write model.json")
     model_args(sp)
     sp.add_argument("--out", default="model.json", help="output path (default: %(default)s)")
+    sp.add_argument("--tier-l2", type=float,
+                    help="fix the per-tier strength penalty instead of tuning it (tier_mode gets 3x); "
+                         "1000 keeps tiers close to the shared model, which `evaluate` showed is best for "
+                         "the Masters tiers while their data is thin")
     sp.set_defaults(func=cmd_train)
 
     def draft_args(sp):
         sp.add_argument("--model", default="model.json", help="trained model (default: %(default)s)")
+        sp.add_argument("--tier", help="rank tier to draft for: legendary, mastersi, mastersii or mastersiii "
+                                       "(default: the model's default, Masters I)")
         sp.add_argument("--map", required=True, help="map name (prefix ok)")
         sp.add_argument("--first", choices=["us", "them"], required=True, help="who has first pick")
         sp.add_argument("--bans", help="comma-separated banned brawlers (both teams)")

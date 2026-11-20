@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .dataset import DEFAULT_RANK_FACTOR, Matches
+from .dataset import DEFAULT_RANK_FACTOR, DEFAULT_TIER, TIER_NAMES, Matches
 from .winmodel import WinModel
 
 FORMAT_VERSION = 1
@@ -45,7 +45,9 @@ def to_dict(model: WinModel, m: Matches, games: dict, extra: dict | None = None,
         "maps": [{"mode": mode, "map": name} for mode, name in m.maps],
         "win_model": {
             "doc": "logit(team A wins) = sum_A s - sum_B s + syn(A) - syn(B) + sum_{a in A, b in B} mu(a,b); "
-                   "s[b] = global[b] + mode[b][mode] + map[b][map]; syn(T) = sum over pairs {i<j} in T of "
+                   "s[b] = global[b] + mode[b][mode] + map[b][map] + tier[b][tier] + tier_mode[b][tier][mode] "
+                   "(tier = the rank tier the draft is played at, default_tier if unknown); "
+                   "syn(T) = sum over pairs {i<j} in T of "
                    "synergy[i,j] + synergy_mode[i,j,mode]; with lo=min(a,b), hi=max(a,b): "
                    "M = matchup[lo,hi] + matchup_mode[lo,hi,mode], mu(a,b) = +M if a<b else -M. "
                    "Pair lists are sparse [i, j, (mode,) value]; missing entries are 0.",
@@ -57,7 +59,11 @@ def to_dict(model: WinModel, m: Matches, games: dict, extra: dict | None = None,
             "synergy_mode": sparse_pairs(t["synergy_mode"]),
             "matchup": sparse_pairs(t["matchup"]),
             "matchup_mode": sparse_pairs(t["matchup_mode"]),
+            "tier": [[_r(v) for v in row] for row in t["tier"]],
+            "tier_mode": [[[_r(v) for v in modes] for modes in row] for row in t["tier_mode"]],
         },
+        "tiers": list(TIER_NAMES),
+        "default_tier": DEFAULT_TIER,
         "games": games,
         **(extra or {}),
     }
@@ -77,6 +83,8 @@ def pick_model_dict(pm, threshold: float = 0.01) -> dict:
                "available brawlers. Lifts are symmetric, sparse [i, j, value] with i<j; missing = 0.",
         "alpha": pm.alpha, "beta": pm.beta,
         "log_base": [[round(float(x), 3) for x in row] for row in pm.log_base],
+        **({"log_base_tier": [[[round(float(x), 3) for x in row] for row in tier] for tier in pm.log_base_tier]}
+           if pm.log_base_tier is not None else {}),
         "ally_lift": sparse(pm.ally_lift),
         "enemy_lift": sparse(pm.enemy_lift),
     }

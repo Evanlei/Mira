@@ -86,7 +86,7 @@ class WinModelTests(unittest.TestCase):
 
     def test_feature_shape(self):
         idx, sgn = features(self.m, Layout(20, 2, 4))
-        self.assertEqual(idx.shape, (len(self.m), 48))
+        self.assertEqual(idx.shape, (len(self.m), 60))
         self.assertTrue(np.all(np.abs(sgn) <= 1))
 
 
@@ -128,9 +128,38 @@ class LobbyRankWeightTests(unittest.TestCase):
         self.assertTrue(np.array_equal(sub.lobby_rank, m.lobby_rank[10:20]))
         r = evaluate.run(m, tune=False, test_days=7.0)
         # Test set holds only all-Masters matches; a Masters-only Mira is reported alongside.
-        self.assertEqual(r.n_test, int((m.masters_mask() & evaluate.time_split(m, 7.0)[0]).sum()))
+        train_mask, test_mask, _ = evaluate.masters_split(m, 7.0)
+        self.assertEqual(r.n_test, int(test_mask.sum()))
+        self.assertTrue(m.masters_mask()[test_mask].all())
+        # The test set is ~20% of the all-Masters matches, not of all matches.
+        self.assertAlmostEqual(test_mask.sum() / m.masters_mask().sum(), 0.2, delta=0.02)
+        # Nothing in training is at or after the first test match.
+        first_test = min(t for t, x in zip(m.times, test_mask) if x)
+        self.assertTrue(all(t < first_test for t, x in zip(m.times, train_mask) if x))
         self.assertIn(evaluate.MASTERS_ONLY, [s.name for s in r.scores])
         self.assertLess(r.n_train_masters, r.n_train)
+
+
+class TopBoostTests(unittest.TestCase):
+    def test_top_weights(self):
+        m = synthetic(n=200, seed=4)
+        m.lobby_mean = np.array([16.0, 19.0, 20.0, 21.5, 22.0, 23.0] * 33 + [19.0, 19.0])
+        w = m.top_weights(2.0)
+        self.assertTrue(np.allclose(w[:6], [1, 1, 2, 2 ** 2.5, 8, 8]))  # capped at Pro
+        self.assertTrue(np.all(m.top_weights(1.0) == 1.0))
+        self.assertTrue(np.allclose(m.subset(slice(0, 6)).lobby_mean, m.lobby_mean[:6]))
+
+
+class TierReportTests(unittest.TestCase):
+    def test_shared_baseline_is_a_real_model(self):
+        m = synthetic(n=4000, seed=9)
+        m.lobby_rank = np.full(len(m), 19, dtype=np.int32)
+        m.lobby_mean = np.random.default_rng(0).choice([19.0, 20.0], size=len(m))
+        rows = evaluate.tier_report(m, pick_sample=50)
+        self.assertTrue(rows)
+        for r in rows:
+            self.assertLess(r.shared, 0.69)  # a coin flip scores 0.6931
+            self.assertLess(r.tiered, 0.69)
 
 
 class PatchWeightTests(unittest.TestCase):

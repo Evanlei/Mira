@@ -13,11 +13,16 @@ def opt(o):
 
 
 def write(model_path: str, out_path: str, n_cases: int = 12, seed: int = 7) -> int:
-    m = Model.load(model_path)
+    with open(model_path, encoding="utf-8") as f:
+        data = json.load(f)
+    n_tiers = max(1, len(data.get("tiers", [])))
+    models = [Model(data, tier=t) for t in range(n_tiers)]
     rng = random.Random(seed)
     cases = []
     states = [(0, 0), (0, 1), (1, 0), (1, 1), (1, 2), (3, 2), (2, 3), (3, 3)]
     for i in range(n_cases):
+        tier = i % n_tiers
+        m = models[tier]
         mp = rng.randrange(len(m.maps))
         we_first = rng.random() < 0.5
         pool = rng.sample(range(m.B), 12)
@@ -31,13 +36,13 @@ def write(model_path: str, out_path: str, n_cases: int = 12, seed: int = 7) -> i
         except ValueError:
             continue
         cases.append({
-            "map": mp, "we_first": we_first, "ours": ours, "theirs": theirs, "bans": bans,
+            "map": mp, "tier": tier, "we_first": we_first, "ours": ours, "theirs": theirs, "bans": bans,
             "win": r.win, "side": r.side, "turn_size": r.turn_size,
             "suggestions": [opt(o) for o in r.suggestions],
             "line": [{"side": s.side, "chosen": opt(s.chosen), "alternatives": [opt(a) for a in s.alternatives]}
                      for s in r.line],
         })
-    mp = 0
+    mp, m = 0, Model(data)
     bans = [{"brawler": b, "win": w, "gain": g} for b, w, g in suggest_bans(m, mp, True, set(), n=5)]
     with open(out_path, "w") as f:
         json.dump({"cases": cases, "bans": {"map": mp, "we_first": True, "result": bans}}, f)

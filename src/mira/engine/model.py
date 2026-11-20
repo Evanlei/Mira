@@ -12,8 +12,11 @@ def _norm(s: str) -> str:
 
 
 class Model:
-    def __init__(self, data: dict):
+    def __init__(self, data: dict, tier: int | None = None):
+        """``tier``: the rank tier to draft for (index into data["tiers"]); default_tier if None."""
         self.data = data
+        self.tiers = data.get("tiers", [])
+        self.tier = data.get("default_tier", 0) if tier is None else tier
         self.names = [b["name"] for b in data["brawlers"]]
         self.B = len(self.names)
         self._by_name = {_norm(n): i for i, n in enumerate(self.names)}
@@ -29,11 +32,15 @@ class Model:
         self.syn_mode = {(i, j, k): v for i, j, k, v in w["synergy_mode"]}
         self.mu = {(i, j): v for i, j, v in w["matchup"]}
         self.mu_mode = {(i, j, k): v for i, j, k, v in w["matchup_mode"]}
+        self.s_tier = w.get("tier")            # [B][n_tiers] or None (older models)
+        self.s_tier_mode = w.get("tier_mode")  # [B][n_tiers][n_modes]
 
         p = data.get("pick_model")
         if p:
             self.alpha, self.beta = p["alpha"], p["beta"]
             self.log_base = p["log_base"]  # [B][n_maps]
+            if "log_base_tier" in p:
+                self.log_base = p["log_base_tier"][self.tier]
             self.ally = {}
             for i, j, v in p["ally_lift"]:
                 self.ally[i, j] = self.ally[j, i] = v
@@ -43,8 +50,8 @@ class Model:
         self.games = data.get("games", {})
 
     @classmethod
-    def load(cls, path: str | Path) -> "Model":
-        return cls(json.loads(Path(path).read_text(encoding="utf-8")))
+    def load(cls, path: str | Path, tier: int | None = None) -> "Model":
+        return cls(json.loads(Path(path).read_text(encoding="utf-8")), tier)
 
     # -- lookups ------------------------------------------------------------
 
@@ -70,7 +77,11 @@ class Model:
     # -- win model ----------------------------------------------------------
 
     def strength(self, b: int, mp: int) -> float:
-        return self.g[b] + self.s_mode[b][self._mode_of_map[mp]] + self.s_map[b][mp]
+        k = self._mode_of_map[mp]
+        s = self.g[b] + self.s_mode[b][k] + self.s_map[b][mp]
+        if self.s_tier is not None:
+            s += self.s_tier[b][self.tier] + self.s_tier_mode[b][self.tier][k]
+        return s
 
     def synergy(self, a: int, b: int, mp: int) -> float:
         i, j = (a, b) if a < b else (b, a)

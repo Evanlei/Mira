@@ -18,6 +18,52 @@ def exported(m, win, pick):
     return Model(json.loads(json.dumps(data)))  # round-trip through JSON like the site will
 
 
+class TierTests(unittest.TestCase):
+    """Per-tier strength: learned where a tier's games show it, and reproduced by the engine."""
+
+    @classmethod
+    def setUpClass(cls):
+        rng = np.random.default_rng(7)
+        m = synthetic(n=6000, seed=5, effects=False)
+        m.lobby_rank = np.full(len(m), 19, dtype=np.int32)
+        m.lobby_mean = rng.choice([19.0, 21.0], size=len(m))
+        # At Masters III+, brawler 0 is much stronger than elsewhere.
+        top = m.lobby_mean >= 20.5
+        has0 = (m.teams[:, 0, :] == 0).any(axis=1)
+        flip = top & has0 & (rng.random(len(m)) < 0.6)
+        m.y = np.where(flip, 1.0, m.y)
+        cls.m = m
+        cls.win = WinModel.fit(m, l2={"tier": 30, "tier_mode": 100})
+        cls.pick = PickModel.fit(m)
+        cls.data = json.loads(json.dumps(export.to_dict(
+            cls.win, m, export.game_counts(m), extra={"pick_model": export.pick_model_dict(cls.pick, threshold=0)},
+            threshold=0)))
+
+    def test_tier_effect_is_learned(self):
+        t = self.win.tables()["tier"]
+        self.assertGreater(t[0, 3] - t[0, 1], 0.3)
+        # Brawlers without a tier effect stay near the shared strength.
+        self.assertLess(np.abs(t[5:, 3] - t[5:, 1]).max(), 0.2)
+
+    def test_engine_matches_numpy_per_tier(self):
+        for tier, mean in ((1, 19.0), (3, 21.0)):
+            engine = Model(self.data, tier=tier)
+            x = one(self.m, [0, 7, 9], [4, 11, 13], 2)
+            x.lobby_mean = np.array([mean])
+            self.assertAlmostEqual(engine.win_prob([0, 7, 9], [4, 11, 13], 2), self.win.predict(x)[0], places=3)
+
+    def test_default_tier_is_masters_one(self):
+        self.assertEqual(Model(self.data).tier, 1)
+        self.assertEqual(self.data["tiers"][3], "Masters III+")
+
+    def test_pick_rates_per_tier(self):
+        engine = Model(self.data, tier=3)
+        got = engine.pick_probs([], [], set(), 0)
+        expected = self.pick.probs(0, [], [], set(), tier=3)
+        for b, p in got.items():
+            self.assertAlmostEqual(p, expected[b], places=3)
+
+
 class ParityTests(unittest.TestCase):
     """The stdlib engine must reproduce the numpy models from model.json."""
 
