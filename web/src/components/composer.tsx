@@ -8,6 +8,7 @@ import { turnsRemaining, type BanSuggestion, type Result, type Searcher } from "
 import type { Draft, Target } from "@/lib/draft";
 import { displayName, gainPts, pct, search } from "@/lib/names";
 
+import { activeOrders } from "./draft-screen";
 import { DataChips } from "./panels";
 import { Portrait, cn } from "./ui";
 
@@ -30,6 +31,7 @@ export function Composer({
   onApply,
   onSkipBans,
   onBrowse,
+  className,
 }: {
   model: Model;
   draft: Draft;
@@ -43,6 +45,7 @@ export function Composer({
   onApply: (picks: number[]) => void;
   onSkipBans: () => void;
   onBrowse: () => void;
+  className?: string;
 }) {
   const [q, setQ] = useState("");
   const [cursor, setCursor] = useState(0);
@@ -64,10 +67,15 @@ export function Composer({
 
   if (t.kind === "done") return null;
   const ours = t.side === "us";
+  const orders = activeOrders(draft, t);
+  const eyebrow =
+    t.kind === "ban"
+      ? `Ban ${(ours ? draft.bansUs : draft.bansThem).length + 1} of 3 · ${ours ? "your team" : "their team"}`
+      : `${orders.length > 1 ? "Picks" : "Pick"} ${orders.join(" + ")} · ${ours ? "your turn" : "their turn"}`;
   const title =
     t.kind === "ban"
-      ? ours ? "Suggested bans" : "Their ban"
-      : ours ? (t.size === 2 ? "Your best two picks" : "Your best pick") : `Their likely pick${t.size === 2 ? "s" : ""}`;
+      ? ours ? "Ban one of these" : "What did they ban?"
+      : ours ? (t.size === 2 ? "Your best two picks" : "Your best pick") : "What did they pick?";
 
   const scoreOf = (b: number): string => {
     if (t.kind === "ban") {
@@ -94,20 +102,19 @@ export function Composer({
   };
 
   return (
-    <section className="card rounded-[22px] p-4" aria-label={title}>
-      <div className="mb-3 flex items-baseline justify-between gap-3">
-        <h2 className="text-base font-semibold tracking-tight">{title}</h2>
-        {t.kind === "ban" ? (
-          <button onClick={onSkipBans} className="pressable text-sm text-muted hover:text-foreground">
-            skip bans
-          </button>
-        ) : (
-          <span className="text-sm text-muted">{ours ? "win chance" : "tap what they picked"}</span>
-        )}
+    <section className={cn("card flex min-h-0 flex-col gap-4 rounded-[22px] p-5 lg:p-6", className)} aria-label={title}>
+      <div className="flex items-end justify-between gap-3">
+        <div className="min-w-0">
+          <div className={cn("text-xs font-semibold tracking-[0.06em] uppercase", ours ? "text-us" : "text-them")}>{eyebrow}</div>
+          <h1 className="mt-1 text-[26px] leading-tight font-extrabold tracking-tight lg:text-[30px]">{title}</h1>
+        </div>
+        <span className="hidden shrink-0 pb-1 text-sm text-faint sm:block">
+          {t.kind === "ban" ? "win % gained" : ours ? "win chance after" : "most likely first"}
+        </span>
       </div>
 
-      <label className="flex h-11 items-center gap-2.5 rounded-[14px] bg-subtle px-3.5 ring-accent focus-within:ring-2">
-        <Search size={17} strokeWidth={1.5} absoluteStrokeWidth className="shrink-0 text-faint" />
+      <label className="flex h-14 shrink-0 items-center gap-3 rounded-2xl bg-subtle px-4 ring-foreground focus-within:ring-2">
+        <Search size={20} strokeWidth={1.75} absoluteStrokeWidth className="shrink-0 text-faint" />
         <input
           ref={input}
           value={q}
@@ -126,16 +133,16 @@ export function Composer({
               setCursor((c) => c + (e.key === "ArrowDown" ? 1 : -1));
             }
           }}
-          placeholder={t.kind === "ban" ? (ours ? "Type a brawler to ban" : "Type their ban") : ours ? "Type any brawler" : "Type what they picked"}
+          placeholder={t.kind === "ban" ? (ours ? "Type a brawler to ban" : "Type their ban") : ours ? "Type any brawler, Enter adds it" : "Type what they picked"}
           aria-label="Type a brawler"
           autoComplete="off"
           autoCorrect="off"
           spellCheck={false}
           enterKeyHint="done"
-          className="h-full min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-faint focus-visible:outline-none"
+          className="h-full min-w-0 flex-1 bg-transparent text-[17px] outline-none placeholder:text-faint focus-visible:outline-none"
           data-composer
         />
-        <kbd className="hidden rounded border border-border px-1.5 text-xs text-faint [@media(pointer:fine)]:inline">/</kbd>
+        <kbd className="hidden rounded-md border border-line-strong px-2 text-xs text-faint [@media(pointer:fine)]:inline">/</kbd>
       </label>
 
       <Results
@@ -144,15 +151,23 @@ export function Composer({
         rows={rows}
         active={active}
         onHover={(r) => setCursor(live.indexOf(r))}
-        valueLabel={q ? (t.kind === "ban" ? "win % gained" : ours ? "win chance" : "you’d be at") : t.kind === "ban" ? "win % gained" : ""}
         onChoose={choose}
         empty={q ? `No brawler matches “${q}”.` : t.kind === "ban" && !bans ? "Working out the best bans…" : ""}
       />
 
-      <button onClick={onBrowse} className="pressable mt-1 inline-flex h-9 items-center gap-1.5 text-sm text-muted hover:text-foreground">
-        <LayoutGrid size={15} strokeWidth={1.5} absoluteStrokeWidth />
-        Browse all brawlers
-      </button>
+      <div className="mt-auto flex items-center justify-between gap-3 pt-1 text-sm text-muted">
+        <button onClick={onBrowse} className="pressable inline-flex h-10 items-center gap-1.5 hover:text-foreground">
+          <LayoutGrid size={16} strokeWidth={1.75} absoluteStrokeWidth />
+          Browse all brawlers
+        </button>
+        {t.kind === "ban" ? (
+          <button onClick={onSkipBans} className="pressable h-10 rounded-full border border-border px-4 hover:text-foreground">
+            Skip bans
+          </button>
+        ) : (
+          <span className="hidden text-faint sm:inline">Assumes good play from both sides</span>
+        )}
+      </div>
     </section>
   );
 }
@@ -196,7 +211,6 @@ function Results({
   rows,
   active,
   onHover,
-  valueLabel,
   onChoose,
   empty,
 }: {
@@ -205,51 +219,52 @@ function Results({
   rows: Row[];
   active: Row | null;
   onHover: (r: Row) => void;
-  valueLabel: string;
   onChoose: (r: Row) => void;
   empty: string;
 }) {
   const label = q ? "Matches" : "Suggested";
-  if (!rows.length) return empty ? <p className="px-1 pt-4 pb-2 text-sm text-muted">{empty}</p> : null;
+  if (!rows.length) return empty ? <p className="px-1 py-2 text-[15px] text-muted">{empty}</p> : null;
 
   return (
-    <div className="mt-3">
-      {(q || valueLabel) && (
-        <div className="mb-1 flex justify-between px-1 text-xs text-faint">
-          <span>{q ? label : ""}</span>
-          <span>{valueLabel}</span>
-        </div>
-      )}
-      <ul role="listbox" aria-label={label} className="-mx-2 flex flex-col">
-        {rows.map((r) => {
-          const isActive = r === active;
-          return (
-            <li key={r.key} role="option" aria-selected={isActive} aria-disabled={!!r.off}>
-              <button
-                disabled={!!r.off}
-                onClick={() => onChoose(r)}
-                onMouseEnter={() => !r.off && onHover(r)}
-                className={cn(
-                  "pressable flex w-full items-center gap-3 rounded-[14px] p-2 text-start disabled:opacity-40",
-                  isActive && q ? "bg-subtle" : "enabled:hover:bg-subtle",
-                )}
-              >
-                <span className="flex shrink-0">
-                  {r.picks.map((b, k) => (
-                    <Portrait key={b} id={model.ids[b]} name={model.names[b]} size={40} className={cn("rounded-[6px]", k > 0 && "-ms-2 ring-2 ring-surface")} />
-                  ))}
+    <ul role="listbox" aria-label={label} className="-mx-1 flex min-h-0 flex-col gap-1 overflow-y-auto overscroll-contain">
+      {rows.map((r) => {
+        const isActive = q ? r === active : !!r.best;
+        const size = r.best && !q ? 52 : 46;
+        return (
+          <li key={r.key} role="option" aria-selected={r === active} aria-disabled={!!r.off}>
+            <button
+              disabled={!!r.off}
+              onClick={() => onChoose(r)}
+              onMouseEnter={() => !r.off && onHover(r)}
+              className={cn(
+                "pressable flex w-full items-center gap-4 rounded-2xl ps-2.5 pe-4 text-start disabled:opacity-40",
+                r.best && !q ? "h-[76px]" : "h-[68px]",
+                isActive ? "bg-subtle ring-1 ring-line-strong ring-inset" : "enabled:hover:bg-subtle",
+              )}
+            >
+              <span className="flex shrink-0">
+                {r.picks.map((b, k) => (
+                  <Portrait
+                    key={b}
+                    id={model.ids[b]}
+                    name={model.names[b]}
+                    size={size}
+                    className={cn("rounded-xl", k > 0 && "-ms-3 ring-[3px]", k > 0 && (isActive ? "ring-subtle" : "ring-surface"))}
+                  />
+                ))}
+              </span>
+              <span className="flex min-w-0 flex-1 flex-col gap-1">
+                <span className={cn("truncate text-[17px]", r.best && !q ? "font-bold" : "font-semibold")}>
+                  {r.picks.map((b) => displayName(model.names[b])).join(" + ")}
                 </span>
-                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <span className="truncate text-[15px] font-medium">{r.picks.map((b) => displayName(model.names[b])).join(" + ")}</span>
-                  {(r.sub || r.off) && <span className="flex flex-wrap items-center gap-1.5 text-xs text-muted">{r.off ?? r.sub}</span>}
-                </span>
-                <span className={cn("tabular text-[17px] font-semibold", r.best && !q && "text-accent")}>{r.value}</span>
-                {isActive && q && <kbd className="hidden rounded border border-border px-1.5 text-xs text-faint sm:inline">↵</kbd>}
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-    </div>
+                {(r.sub || r.off) && <span className="flex flex-wrap items-center gap-1.5 text-[13px] text-muted">{r.off ?? r.sub}</span>}
+              </span>
+              <span className={cn("tabular tracking-tight", r.best && !q ? "text-[26px] font-extrabold lg:text-[30px]" : "text-[22px] font-bold lg:text-2xl")}>{r.value}</span>
+              {r === active && q && <kbd className="hidden rounded-md border border-line-strong px-1.5 text-xs text-faint sm:inline">↵</kbd>}
+            </button>
+          </li>
+        );
+      })}
+    </ul>
   );
 }

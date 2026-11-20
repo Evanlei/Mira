@@ -1,21 +1,24 @@
 @import "tailwindcss";
 
-/* Mira follows jmo's portfolio: Figtree, the Tailwind gray/blue palette, a faint dot grid,
-   hairline borders, one calm column. Team colors are Tailwind blue-600 (you) and red-500 (them).
+/* Two Tailwind zinc palettes, picked on the Claude Design canvas:
+   Paper (light, after jmo's portfolio: zinc on near-white with a faint dot grid) and
+   Graphite (dark: zinc greys, no tint). The current step is marked in the text color, not a hue;
+   the only colors are team blue/red and the game art.
    Shadow, outline and motion values follow jmo-workflow:better-ui. */
 :root {
   --background: #fafafa;
-  --foreground: #1a1a1a;
+  --foreground: #18181b; /* zinc-900 */
   --surface: #ffffff;
   --subtle: #f4f4f5; /* zinc-100 */
-  --accent: #2563eb; /* blue-600 */
-  --muted: #6b7280; /* gray-500 */
-  --faint: #9ca3af; /* gray-400 */
-  --border-color: #e5e7eb; /* gray-200 */
+  --accent: #18181b; /* the current step: same as text */
+  --muted: #52525b; /* zinc-600 */
+  --faint: #71717a; /* zinc-500 */
+  --border-color: #e4e4e7; /* zinc-200 */
+  --line-strong: #d4d4d8; /* zinc-300 */
   --us: #2563eb; /* blue-600 */
-  --them: #ef4444; /* red-500 */
-  --warn: #d97706; /* amber-600 */
-  --dot: rgba(0, 0, 0, 0.15);
+  --them: #dc2626; /* red-600 */
+  --warn: #ea580c; /* orange-600 */
+  --dot: rgba(0, 0, 0, 0.12);
   --image-outline: oklch(0 0 0 / 0.1);
   --shadow-border:
     0px 0px 0px 1px oklch(0 0 0 / 0.06),
@@ -30,21 +33,22 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-    --surface: #111111;
-    --subtle: #18181b; /* zinc-900 */
-    --accent: #60a5fa; /* blue-400 */
-    --muted: #9ca3af; /* gray-400 */
-    --faint: #6b7280; /* gray-500 */
+    --background: #09090b; /* zinc-950 */
+    --foreground: #fafafa; /* zinc-50 */
+    --surface: #18181b; /* zinc-900 */
+    --subtle: #27272a; /* zinc-800 */
+    --accent: #fafafa;
+    --muted: #a1a1aa; /* zinc-400 */
+    --faint: #71717a; /* zinc-500 */
     --border-color: #27272a; /* zinc-800 */
-    --us: #60a5fa; /* blue-400 */
-    --them: #f87171; /* red-400 */
-    --warn: #fbbf24; /* amber-400 */
-    --dot: rgba(255, 255, 255, 0.1);
+    --line-strong: #3f3f46; /* zinc-700 */
+    --us: #3b82f6; /* blue-500 */
+    --them: #ef4444; /* red-500 */
+    --warn: #fb923c; /* orange-400 */
+    --dot: transparent;
     --image-outline: oklch(1 0 0 / 0.1);
-    --shadow-border: 0 0 0 1px oklch(1 0 0 / 0.08);
-    --shadow-border-hover: 0 0 0 1px oklch(1 0 0 / 0.13);
+    --shadow-border: 0 0 0 1px oklch(1 0 0 / 0.06);
+    --shadow-border-hover: 0 0 0 1px oklch(1 0 0 / 0.12);
     color-scheme: dark;
   }
 }
@@ -58,6 +62,7 @@
   --color-muted: var(--muted);
   --color-faint: var(--faint);
   --color-border: var(--border-color);
+  --color-line-strong: var(--line-strong);
   --color-us: var(--us);
   --color-them: var(--them);
   --color-warn: var(--warn);
@@ -84,7 +89,7 @@ body {
 
 ::selection {
   background-color: var(--accent);
-  color: white;
+  color: var(--background);
 }
 
 @layer components {
@@ -121,6 +126,36 @@ body {
   .art {
     outline: 1px solid var(--image-outline);
     outline-offset: -1px;
+  }
+
+  /* Start screen: the fanned brawler cards lift on hover; map tiles zoom their art and glow in the mode's color. */
+  .fan-card {
+    transition-property: translate, rotate;
+    transition-duration: 300ms;
+    transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+  }
+  .map-tile {
+    transition-property: box-shadow, scale;
+    transition-duration: 150ms;
+    transition-timing-function: ease-out;
+  }
+  .map-tile-art {
+    transition-property: scale;
+    transition-duration: 300ms;
+    transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+  }
+  @media (hover: hover) and (prefers-reduced-motion: no-preference) {
+    .fan-card:hover {
+      translate: 0 -8px !important;
+    }
+    .map-tile:hover .map-tile-art {
+      scale: 1.45;
+    }
+  }
+  @media (hover: hover) {
+    .map-tile:hover {
+      box-shadow: 0 0 0 2px var(--mode), 0 8px 24px -8px color-mix(in oklab, var(--mode) 50%, transparent);
+    }
   }
 
   /* Fallback token when a brawler has no portrait yet. */

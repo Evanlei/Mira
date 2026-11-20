@@ -26,7 +26,7 @@ describe("parity with the Python engine", () => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const cases: [number, any][] = fixtures.cases.map((c: unknown, i: number) => [i, c]);
   it.each(cases)("case %i", (_i, c) => {
-    const r = new Searcher(model, c.map, new Set(c.bans)).run(c.ours, c.theirs, c.we_first);
+    const r = new Searcher(model.withTier(c.tier ?? model.tier), c.map, new Set(c.bans)).run(c.ours, c.theirs, c.we_first);
     expect(r.side).toBe(c.side);
     expect(r.turnSize).toBe(c.turn_size);
     expect(r.win).toBeCloseTo(c.win, 9);
