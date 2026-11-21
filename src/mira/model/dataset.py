@@ -34,6 +34,7 @@ class Matches:
     modes: list[str]          # index -> mode
     lobby_rank: np.ndarray | None = None  # (n,) lowest rank of the six players
     lobby_mean: np.ndarray | None = None  # (n,) average rank of the six players
+    brawler_roles: np.ndarray | None = None  # (n_brawlers,) role index (roles.ROLES), -1 = none
 
     def __len__(self) -> int:
         return len(self.y)
@@ -46,6 +47,7 @@ class Matches:
             self.brawler_ids, self.brawler_names, self.maps, self.modes,
             None if self.lobby_rank is None else self.lobby_rank[idx],
             None if self.lobby_mean is None else self.lobby_mean[idx],
+            self.brawler_roles,
         )
 
     def ranks(self) -> np.ndarray:

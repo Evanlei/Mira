@@ -271,6 +271,23 @@ Ranked battle logs don't give pick order (a team's players are listed roughly by
 Liquipedia lists picks in pick order: on maps with a known first pick, popularity falls with the
 1-2-2-1 turn (0.52% of pro picks at turn 1, 0.36% at turn 6).
 
+**Draft roles** (`data/roles.json`, `model/roles.py`): BobbyBS's seven draft classes from "The Best
+Draft Guide EVER" (youtube.com/watch?v=Vn13u4Uggqc) and Part 2: anti_tank, control, thrower,
+sniper, space_maker, tank, support. 64 brawlers are named by the guide, 35 are our call from his
+class definitions, 9 are unlabeled. Two uses, both measured:
+
+- Role-pair terms in the win model (`role_synergy`, `role_matchup`, folded into the pair tables on
+  export). The fitted tables match the guide (space makers beat throwers, anti-tanks beat tanks,
+  tanks beat space makers, stacking one class is the worst kind of pair) but don't improve held-out
+  log loss (+-0.0002): with 240k games the brawler pairs already carry this. They are off unless
+  `Matches.brawler_roles` is set, which training doesn't do.
+- Role by turn in the opponent model (`model/turnroles.py`, exported as `turn_roles`): from the
+  ~1,900 pro drafts with a known pick order, how much more or less likely each role is at each
+  draft turn (throwers: 6% of first picks, 14% of last picks; space makers peak at 4-5; snipers
+  early). Fit on 2023-24 and tested on 2025-26, it improves the log-likelihood of pro picks (only
+  earlier picks known) from -5.113 to -5.106, most at the last picks. Both engines add
+  delta[turn][role] to each pick score at that turn.
+
 `pro-eval` (`src/mira/proeval.py`) scores a model on recent pro maps it knows: whether the win model
 calls the winner, how many pro bans are in Mira's top bans (vs Ranked pick rate and the pros' own
 ban rate on the map in other matches), and where Mira ranks each pro pick with the other five known

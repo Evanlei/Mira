@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from mira.model import evaluate, patches as patchlog
+from mira.model import evaluate, patches as patchlog, winmodel
 from mira.model.baselines import Coin, DeepDraftStyle, MapWinRate
 from mira.model.dataset import Matches
 from mira.model.evaluate import calibration_error, log_loss, paired_bootstrap, time_split
@@ -86,7 +86,7 @@ class WinModelTests(unittest.TestCase):
 
     def test_feature_shape(self):
         idx, sgn = features(self.m, Layout(20, 2, 4))
-        self.assertEqual(idx.shape, (len(self.m), 60))
+        self.assertEqual(idx.shape, (len(self.m), winmodel.N_COLS))
         self.assertTrue(np.all(np.abs(sgn) <= 1))
 
 

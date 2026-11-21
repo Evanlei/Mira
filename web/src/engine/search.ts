@@ -93,7 +93,8 @@ export class Searcher {
 
   private theirs(ours: number[], theirs: number[], size: number): [number[], number][] {
     const taken = new Set([...ours, ...theirs, ...this.banned]);
-    const p1 = this.m.pickProbs(theirs, ours, taken, this.mp);
+    const turn = ours.length + theirs.length; // draft turn of their next pick (0-5)
+    const p1 = this.m.pickProbs(theirs, ours, taken, this.mp, turn);
     const ranked = [...p1.entries()].sort((a, b) => b[1] - a[1]);
     if (size === 1) {
       const top = ranked.slice(0, this.s.theirN);
@@ -103,8 +104,8 @@ export class Searcher {
     const singles = ranked.slice(0, this.s.pairPool).map(([b]) => b);
     const scored: [number[], number][] = [];
     for (const [a, b] of combinations(singles)) {
-      const pab = this.m.pickProbs([...theirs, a], ours, new Set([...taken, a]), this.mp).get(b) ?? 0;
-      const pba = this.m.pickProbs([...theirs, b], ours, new Set([...taken, b]), this.mp).get(a) ?? 0;
+      const pab = this.m.pickProbs([...theirs, a], ours, new Set([...taken, a]), this.mp, turn + 1).get(b) ?? 0;
+      const pba = this.m.pickProbs([...theirs, b], ours, new Set([...taken, b]), this.mp, turn + 1).get(a) ?? 0;
       scored.push([[a, b], p1.get(a)! * pab + p1.get(b)! * pba]);
     }
     scored.sort((x, y) => y[1] - x[1]);

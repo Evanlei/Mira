@@ -1,0 +1,412 @@
+{
+ "doc": "Draft roles from BobbyBS, 'The Best Draft Guide EVER' (youtube.com/watch?v=Vn13u4Uggqc, Apr 2026) and Part 2 (watch?v=XHp3r_D9rAA, May 2026): anti_tank, control, thrower, sniper, space_maker, tank, support. source 'guide' = he names the brawler in that class; 'inferred' = our call from the class definitions. Brawlers in 'unlabeled' get no role terms.",
+ "roles": {
+  "8-BIT": {
+   "role": "anti_tank",
+   "source": "guide"
+  },
+  "ALLI": {
+   "role": "space_maker",
+   "source": "guide"
+  },
+  "AMBER": {
+   "role": "control",
+   "source": "inferred"
+  },
+  "ANGELO": {
+   "role": "sniper",
+   "source": "guide"
+  },
+  "ASH": {
+   "role": "tank",
+   "source": "inferred"
+  },
+  "BARLEY": {
+   "role": "thrower",
+   "source": "guide"
+  },
+  "BEA": {
+   "role": "sniper",
+   "source": "inferred"
+  },
+  "BELLE": {
+   "role": "sniper",
+   "source": "guide"
+  },
+  "BERRY": {
+   "role": "thrower",
+   "source": "guide"
+  },
+  "BIBI": {
+   "role": "tank",
+   "source": "guide"
+  },
+  "BO": {
+   "role": "control",
+   "source": "inferred"
+  },
+  "BONNIE": {
+   "role": "sniper",
+   "source": "inferred"
+  },
+  "BROCK": {
+   "role": "sniper",
+   "source": "guide"
+  },
+  "BULL": {
+   "role": "tank",
+   "source": "guide"
+  },
+  "BUSTER": {
+   "role": "tank",
+   "source": "inferred"
+  },
+  "BUZZ": {
+   "role": "space_maker",
+   "source": "inferred"
+  },
+  "BYRON": {
+   "role": "sniper",
+   "source": "guide"
+  },
+  "CARL": {
+   "role": "control",
+   "source": "inferred"
+  },
+  "CHARLIE": {
+   "role": "control",
+   "source": "inferred"
+  },
+  "CHESTER": {
+   "role": "anti_tank",
+   "source": "guide"
+  },
+  "CHUCK": {
+   "role": "space_maker",
+   "source": "guide"
+  },
+  "CLANCY": {
+   "role": "anti_tank",
+   "source": "guide"
+  },
+  "COLETTE": {
+   "role": "anti_tank",
+   "source": "guide"
+  },
+  "COLT": {
+   "role": "anti_tank",
+   "source": "guide"
+  },
+  "CORDELIUS": {
+   "role": "space_maker",
+   "source": "inferred"
+  },
+  "CROW": {
+   "role": "anti_tank",
+   "source": "guide"
+  },
+  "DARRYL": {
+   "role": "tank",
+   "source": "guide"
+  },
+  "DOUG": {
+   "role": "support",
+   "source": "inferred"
+  },
+  "DRACO": {
+   "role": "tank",
+   "source": "guide"
+  },
+  "DYNAMIKE": {
+   "role": "thrower",
+   "source": "guide"
+  },
+  "EDGAR": {
+   "role": "space_maker",
+   "source": "guide"
+  },
+  "EL PRIMO": {
+   "role": "tank",
+   "source": "inferred"
+  },
+  "EMZ": {
+   "role": "anti_tank",
+   "source": "guide"
+  },
+  "EVE": {
+   "role": "control",
+   "source": "guide"
+  },
+  "FANG": {
+   "role": "tank",
+   "source": "guide"
+  },
+  "FINX": {
+   "role": "control",
+   "source": "inferred"
+  },
+  "FRANK": {
+   "role": "tank",
+   "source": "guide"
+  },
+  "GALE": {
+   "role": "control",
+   "source": "inferred"
+  },
+  "GENE": {
+   "role": "control",
+   "source": "guide"
+  },
+  "GIGI": {
+   "role": "space_maker",
+   "source": "inferred"
+  },
+  "GLOWY": {
+   "role": "support",
+   "source": "guide"
+  },
+  "GRAY": {
+   "role": "support",
+   "source": "guide"
+  },
+  "GRIFF": {
+   "role": "anti_tank",
+   "source": "inferred"
+  },
+  "GROM": {
+   "role": "thrower",
+   "source": "guide"
+  },
+  "GUS": {
+   "role": "sniper",
+   "source": "guide"
+  },
+  "HANK": {
+   "role": "tank",
+   "source": "guide"
+  },
+  "JACKY": {
+   "role": "tank",
+   "source": "inferred"
+  },
+  "JANET": {
+   "role": "control",
+   "source": "inferred"
+  },
+  "JESSIE": {
+   "role": "control",
+   "source": "inferred"
+  },
+  "JUJU": {
+   "role": "thrower",
+   "source": "guide"
+  },
+  "KAZE": {
+   "role": "space_maker",
+   "source": "guide"
+  },
+  "KENJI": {
+   "role": "space_maker",
+   "source": "guide"
+  },
+  "KIT": {
+   "role": "support",
+   "source": "guide"
+  },
+  "LARRY & LAWRIE": {
+   "role": "thrower",
+   "source": "guide"
+  },
+  "LEON": {
+   "role": "control",
+   "source": "guide"
+  },
+  "LILY": {
+   "role": "space_maker",
+   "source": "guide"
+  },
+  "LOLA": {
+   "role": "control",
+   "source": "inferred"
+  },
+  "LOU": {
+   "role": "anti_tank",
+   "source": "guide"
+  },
+  "LUMI": {
+   "role": "control",
+   "source": "guide"
+  },
+  "MAISIE": {
+   "role": "anti_tank",
+   "source": "inferred"
+  },
+  "MANDY": {
+   "role": "sniper",
+   "source": "guide"
+  },
+  "MAX": {
+   "role": "support",
+   "source": "guide"
+  },
+  "MEEPLE": {
+   "role": "control",
+   "source": "inferred"
+  },
+  "MEG": {
+   "role": "tank",
+   "source": "inferred"
+  },
+  "MELODIE": {
+   "role": "space_maker",
+   "source": "guide"
+  },
+  "MICO": {
+   "role": "space_maker",
+   "source": "inferred"
+  },
+  "MINA": {
+   "role": "space_maker",
+   "source": "guide"
+  },
+  "MOE": {
+   "role": "anti_tank",
+   "source": "guide"
+  },
+  "MORTIS": {
+   "role": "space_maker",
+   "source": "guide"
+  },
+  "MR. P": {
+   "role": "control",
+   "source": "inferred"
+  },
+  "NANI": {
+   "role": "sniper",
+   "source": "guide"
+  },
+  "NITA": {
+   "role": "control",
+   "source": "guide"
+  },
+  "OLLIE": {
+   "role": "tank",
+   "source": "inferred"
+  },
+  "OTIS": {
+   "role": "anti_tank",
+   "source": "guide"
+  },
+  "PAM": {
+   "role": "support",
+   "source": "inferred"
+  },
+  "PEARL": {
+   "role": "control",
+   "source": "inferred"
+  },
+  "PENNY": {
+   "role": "control",
+   "source": "inferred"
+  },
+  "PIERCE": {
+   "role": "sniper",
+   "source": "guide"
+  },
+  "PIPER": {
+   "role": "sniper",
+   "source": "guide"
+  },
+  "POCO": {
+   "role": "support",
+   "source": "guide"
+  },
+  "R-T": {
+   "role": "sniper",
+   "source": "guide"
+  },
+  "RICO": {
+   "role": "control",
+   "source": "inferred"
+  },
+  "ROSA": {
+   "role": "tank",
+   "source": "guide"
+  },
+  "RUFFS": {
+   "role": "support",
+   "source": "inferred"
+  },
+  "SAM": {
+   "role": "space_maker",
+   "source": "inferred"
+  },
+  "SANDY": {
+   "role": "support",
+   "source": "inferred"
+  },
+  "SHADE": {
+   "role": "space_maker",
+   "source": "guide"
+  },
+  "SHELLY": {
+   "role": "anti_tank",
+   "source": "guide"
+  },
+  "SIRIUS": {
+   "role": "thrower",
+   "source": "guide"
+  },
+  "SPIKE": {
+   "role": "anti_tank",
+   "source": "guide"
+  },
+  "SPROUT": {
+   "role": "thrower",
+   "source": "guide"
+  },
+  "SQUEAK": {
+   "role": "control",
+   "source": "guide"
+  },
+  "STU": {
+   "role": "control",
+   "source": "guide"
+  },
+  "SURGE": {
+   "role": "space_maker",
+   "source": "inferred"
+  },
+  "TARA": {
+   "role": "control",
+   "source": "inferred"
+  },
+  "TICK": {
+   "role": "thrower",
+   "source": "guide"
+  },
+  "TRUNK": {
+   "role": "tank",
+   "source": "guide"
+  },
+  "WILLOW": {
+   "role": "thrower",
+   "source": "guide"
+  },
+  "ZIGGY": {
+   "role": "thrower",
+   "source": "guide"
+  }
+ },
+ "unlabeled": [
+  "WENDY",
+  "STARR NOVA",
+  "DAMIAN",
+  "NAJIA",
+  "NORI",
+  "VINCE",
+  "COSMO",
+  "JAE-YONG",
+  "BOLT"
+ ]
+}

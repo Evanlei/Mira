@@ -110,7 +110,8 @@ class Searcher:
 
     def _theirs(self, ours: tuple, theirs: tuple, size: int) -> list[tuple[tuple[int, ...], float]]:
         taken = set(ours) | set(theirs) | self.banned
-        p1 = self.m.pick_probs(theirs, ours, taken, self.mp)
+        turn = len(ours) + len(theirs)  # draft turn of their next pick (0-5)
+        p1 = self.m.pick_probs(theirs, ours, taken, self.mp, turn)
         if size == 1:
             top = sorted(p1.items(), key=lambda kv: kv[1], reverse=True)[: self.s.their_n]
             z = sum(p for _, p in top)
@@ -119,8 +120,8 @@ class Searcher:
         scored = []
         for a, b in combinations(singles, 2):
             # Either order: a then b (b given a as an ally), or b then a.
-            pa_b = self.m.pick_probs(theirs + (a,), ours, taken | {a}, self.mp).get(b, 0.0)
-            pb_a = self.m.pick_probs(theirs + (b,), ours, taken | {b}, self.mp).get(a, 0.0)
+            pa_b = self.m.pick_probs(theirs + (a,), ours, taken | {a}, self.mp, turn + 1).get(b, 0.0)
+            pb_a = self.m.pick_probs(theirs + (b,), ours, taken | {b}, self.mp, turn + 1).get(a, 0.0)
             scored.append(((a, b), p1[a] * pa_b + p1[b] * pb_a))
         scored.sort(key=lambda kv: kv[1], reverse=True)
         top = scored[: self.s.their_pairs]

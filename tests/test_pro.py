@@ -212,3 +212,30 @@ class ChooseTests(unittest.TestCase):
         agree = {(0, 0, 0.0): 0.07, (0, 0.05, 0.0): 0.2, (0, 0.05, 0.2): 0.37}
         best = protune.choose(rows, agree)
         self.assertEqual((best.gamma, best.rho), (0.05, 0.0))  # rho=0.2 wins too rarely in Masters
+
+
+class TurnRoleTests(unittest.TestCase):
+    def test_counts_turns_in_1_2_2_1_order(self):
+        from mira.model import turnroles
+        from mira.model.roles import ROLES
+        r = dict(row(["Crow", "Kaze", "Juju"], ["Gene", "Bull", "Sirius"]))
+        r["first_pick"] = 0
+        role_of = {"crow": "anti_tank", "kaze": "space_maker", "juju": "thrower",
+                   "gene": "control", "bull": "tank", "sirius": "thrower"}
+        c = turnroles.counts([r], role_of)
+        self.assertEqual(c[0, ROLES.index("anti_tank")], 1)   # turn 1: first team's first pick
+        self.assertEqual(c[1, ROLES.index("control")], 1)     # turn 2: second team's first
+        self.assertEqual(c[4, ROLES.index("thrower")], 1)     # turn 5: first team's last
+        self.assertEqual(c[5, ROLES.index("thrower")], 1)     # turn 6: second team's last
+
+    def test_engine_applies_delta_at_the_turn(self):
+        from mira.engine.model import Model
+        data = dict(toy_model().data)
+        B = len(data["brawlers"])
+        data["turn_roles"] = {"roles": [0 if b == 2 else -1 for b in range(B)],
+                              "delta": [[0.0]] * 5 + [[3.0]]}
+        m = Model(data)
+        early = m.pick_probs([], [], set(), 0, turn=0)[2]
+        late = m.pick_probs([], [], set(), 0, turn=5)[2]
+        self.assertGreater(late, 5 * early)
+        self.assertEqual(m.pick_probs([], [], set(), 0)[2], early)  # no turn: no adjustment

@@ -48,6 +48,9 @@ class Model:
             for i, j, v in p["enemy_lift"]:
                 self.enemy[i, j] = self.enemy[j, i] = v
         self.games = data.get("games", {})
+        tr = data.get("turn_roles")  # role-by-turn adjustment of the opponent model (model/turnroles.py)
+        self.turn_role = tr["roles"] if tr else None
+        self.turn_delta = tr["delta"] if tr else None
 
         # How the search ranks our own candidates (see adjust()). Older model.json files have no
         # "ranking" block: kappa = gamma = 0, so they rank by the win model alone, as before.
@@ -159,13 +162,17 @@ class Model:
 
     # -- pick model ---------------------------------------------------------
 
-    def pick_probs(self, allies, enemies, unavailable, mp: int) -> dict[int, float]:
-        """P(next pick = b) for the side owning ``allies``, as a typical Masters player."""
+    def pick_probs(self, allies, enemies, unavailable, mp: int, turn: int | None = None) -> dict[int, float]:
+        """P(next pick = b) for the side owning ``allies``, as a typical Masters player.
+        ``turn`` (0-5, the draft turn of this pick) adds the role-by-turn adjustment."""
+        delta = self.turn_delta[turn] if (turn is not None and self.turn_delta and 0 <= turn < 6) else None
         scores = {}
         for b in range(self.B):
             if b in unavailable:
                 continue
             s = self.log_base[b][mp]
+            if delta is not None and self.turn_role[b] >= 0:
+                s += delta[self.turn_role[b]]
             for a in allies:
                 s += self.alpha * self.ally.get((b, a), 0.0)
             for e in enemies:

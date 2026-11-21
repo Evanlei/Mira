@@ -334,6 +334,15 @@ def cmd_train(args: argparse.Namespace) -> int:
         rates = prorates.compute(pro_rows, m.brawler_names, m.maps, m.modes, np.exp(pick.log_base))
         extra_pro = {"pro": prorates.to_dict(rates)}
         print(f"Pro rates: {rates.n_total:.0f} weighted pro maps, {rates.since} .. {rates.until}")
+        from pathlib import Path
+
+        from .model import roles as role_data, turnroles
+        if Path(role_data.DEFAULT_PATH).is_file():
+            c = turnroles.counts(pro_rows, turnroles.role_lookup(role_data.DEFAULT_PATH))
+            if c.sum():
+                extra_pro["turn_roles"] = turnroles.to_dict(turnroles.fit(c), role_data.load(m.brawler_names),
+                                                            int(c[0].sum()), turnroles.DEFAULT_TAU)
+                print(f"Turn roles: from {int(c[0].sum())} pro drafts with a known pick order")
     data = export.to_dict(model, m, export.game_counts(m, args.rank_factor), extra={
         "pick_model": export.pick_model_dict(pick),
         "ranking": export.ranking_dict(kappa, gamma, model.strength_sd(m, w), rho, ban_lambda),

@@ -35,6 +35,8 @@ export type ModelJson = {
   ranking?: { kappa: number; gamma: number; rho?: number; ban_lambda?: number; strength_sd: number[][][] }; // sd: [n_tiers][B][n_maps]
   /** Pro esports drafts (Liquipedia): log pick share and ban rate, [B][n_maps]. */
   pro?: { log_pick: number[][]; ban: number[][]; since: string; until: string; n_maps: number };
+  /** Opponent model: delta[turn][role[b]] added to b's pick score at draft turn 0-5 (role -1 = none). */
+  turn_roles?: { roles: number[]; delta: number[][] };
   patches?: { date: string; changes: Record<string, string> }[];
 };
 
@@ -73,6 +75,8 @@ export class Model {
   readonly banLambda: number;
   private readonly proLogPick?: number[][];
   private readonly proBan?: number[][];
+  private readonly turnRole?: number[];
+  private readonly turnDelta?: number[][];
 
   constructor(
     readonly data: ModelJson,
@@ -114,6 +118,8 @@ export class Model {
     this.kappa = data.ranking?.kappa ?? 0;
     this.gamma = data.ranking?.gamma ?? 0;
     this.sd = data.ranking?.strength_sd?.[this.tier];
+    this.turnRole = data.turn_roles?.roles;
+    this.turnDelta = data.turn_roles?.delta;
     this.proLogPick = data.pro?.log_pick;
     this.proBan = data.pro?.ban;
     this.rho = this.proLogPick ? (data.ranking?.rho ?? 0) : 0;
@@ -219,13 +225,18 @@ export class Model {
 
   // -- pick model -------------------------------------------------------------
 
-  /** P(next pick = b) for the side owning `allies`, as a typical Masters player. */
-  pickProbs(allies: readonly number[], enemies: readonly number[], unavailable: ReadonlySet<number>, mp: number): Map<number, number> {
+  /**
+   * P(next pick = b) for the side owning `allies`, as a typical Masters player. `turn` (0-5, the
+   * draft turn of this pick) adds the role-by-turn adjustment.
+   */
+  pickProbs(allies: readonly number[], enemies: readonly number[], unavailable: ReadonlySet<number>, mp: number, turn?: number): Map<number, number> {
+    const delta = turn !== undefined && this.turnDelta && turn >= 0 && turn < 6 ? this.turnDelta[turn] : undefined;
     const scores = new Map<number, number>();
     let top = -Infinity;
     for (let b = 0; b < this.B; b++) {
       if (unavailable.has(b)) continue;
       let s = this.logBase[b][mp];
+      if (delta && this.turnRole![b] >= 0) s += delta[this.turnRole![b]];
       for (const a of allies) s += this.alpha * this.ally[b * this.B + a];
       for (const e of enemies) s += this.beta * this.enemy[b * this.B + e];
       scores.set(b, s);
