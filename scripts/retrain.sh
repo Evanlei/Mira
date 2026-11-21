@@ -26,6 +26,10 @@ rm -f "$SNAP"
 sqlite3 mira.db ".timeout 60000" "VACUUM INTO '$SNAP'"
 [ "$(sqlite3 "$SNAP" 'pragma quick_check')" = "ok" ] || { log "snapshot failed its integrity check"; exit 1; }
 
+# 1b. New pro drafts from Liquipedia (a few requests when nothing changed). Not needed to train
+#     yet, so a failure here never blocks the retrain.
+"$UV" run mira pro-sync >/dev/null 2>&1 || log "pro-sync failed; continuing"
+
 # 2. Train with the settings `mira evaluate` chose (see README: Training and evaluation).
 log "train"
 "$UV" run mira --db "$SNAP" train --rank-factor 0.5 --tier-l2 1000 --out "$OUT"

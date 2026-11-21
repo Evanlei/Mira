@@ -467,6 +467,30 @@ def cmd_publish(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_pro_sync(args: argparse.Namespace) -> int:
+    from . import pro
+
+    conn = _open_db(args)
+    st = pro.sync(conn, full=args.full, log=print)
+    n, latest = conn.execute("SELECT COUNT(*), MAX(played_on) FROM pro_maps").fetchone()
+    print(f"Fetched {st.pages_fetched} of {st.pages_seen} pages ({st.maps} maps). "
+          f"Stored: {n} pro maps, latest {latest}. Data: Liquipedia (CC-BY-SA).")
+    return 0
+
+
+def cmd_pro_eval(args: argparse.Namespace) -> int:
+    from . import pro, proeval
+
+    model = _engine(args)
+    since = args.since or pro.season_start(months=args.months)
+    rows = pro.load_rows(_open_db(args), since)
+    matches, skipped = proeval.resolve(model, rows)
+    rep = proeval.run(model, matches, ban_maps=args.ban_maps, log=lambda s: print(s, file=sys.stderr))
+    rep.skipped = skipped
+    print(proeval.format_report(rep, since))
+    return 0
+
+
 def cmd_export(args: argparse.Namespace) -> int:
     conn = _open_db(args)
     where, params = ("WHERE b.battle_type = ?", [args.type]) if args.type else ("", [])
@@ -623,6 +647,19 @@ def build_parser() -> argparse.ArgumentParser:
     draft_args(sp)
     sp.add_argument("-n", type=int, default=5, help="number of suggestions (default: 5)")
     sp.set_defaults(func=cmd_bans)
+
+    sp = sub.add_parser("pro-sync", help="import pro esports drafts (picks, bans, results) from Liquipedia")
+    sp.add_argument("--full", action="store_true", help="refetch every page, not just new or edited ones")
+    sp.set_defaults(func=cmd_pro_sync)
+
+    sp = sub.add_parser("pro-eval", help="check a trained model against recent pro drafts")
+    sp.add_argument("--model", default="model.json", help="trained model (default: %(default)s)")
+    sp.add_argument("--tier", help="rank tier to score with (default: the model's default)")
+    sp.add_argument("--months", type=int, default=6, help="use pro maps from the last N months (default: 6)")
+    sp.add_argument("--since", help="use pro maps from this date on (YYYY-MM-DD); overrides --months")
+    sp.add_argument("--ban-maps", type=int, default=30,
+                    help="check bans on the N most-played maps; ban search is slow (default: %(default)s)")
+    sp.set_defaults(func=cmd_pro_eval)
 
     sp = sub.add_parser("publish", help="copy model.json into the website and refresh its parity tests")
     sp.add_argument("--model", default="model.json", help="trained model (default: %(default)s)")

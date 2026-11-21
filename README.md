@@ -227,6 +227,25 @@ often as without the adjustment (within one standard error), and among the setti
 takes the one leaning least on few-game brawlers. `--kappa` / `--gamma` fix them instead. Displayed
 win chances are always the plain win model's.
 
+### Pro drafts
+
+```sh
+uv run mira pro-sync          # import pro esports picks, bans and results from Liquipedia
+uv run mira pro-eval          # check model.json against the last 6 months of pro drafts
+```
+
+`pro-sync` (`src/mira/pro.py`) reads every Liquipedia page with pro drafts (about 330 tournament
+pages, 9,000 maps since 2022) into `pro_pages` / `pro_maps`: map, mode, teams, both teams' three
+picks and three bans, set score and, where recorded, which team picked first. It follows
+Liquipedia's API terms (descriptive User-Agent, gzip, one request every 2.5 s) and refetches only
+pages edited since the last sync. Pick order within a team isn't recorded. Liquipedia content is
+CC-BY-SA: credit it wherever pro data is shown.
+
+`pro-eval` (`src/mira/proeval.py`) scores a model on recent pro maps it knows: whether the win model
+calls the winner, how many pro bans are in Mira's top bans (vs Ranked pick rate and the pros' own
+ban rate on the map in other matches), and where Mira ranks each pro pick with the other five known
+(vs the Masters pick rate).
+
 **Caveat:** the "expected win chance" is optimistic. The search keeps the best of several noisy
 estimates and assumes the opponent picks like a typical player, not a counter-picker. Trust the
 ranking more than the absolute %.
