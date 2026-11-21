@@ -180,3 +180,30 @@ class PatchWeightTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LobbyCutTests(unittest.TestCase):
+    """The lowest lobby rank to train on: looser only while lower lobbies clearly help."""
+
+    def data(self, lower_is_noise, seed=3):
+        from mira.model.winmodel import DEFAULT_L2
+        m = synthetic(n=16000, seed=seed)
+        rng = np.random.default_rng(seed)
+        m.lobby_rank = rng.choice([19, 16], size=len(m), p=[0.3, 0.7]).astype(np.int32)
+        m.lobby_mean = m.lobby_rank.astype(float)
+        if lower_is_noise:  # lower lobbies where what wins is the opposite of what wins in Masters
+            m.y = np.where(m.lobby_rank < 19, 1 - m.y, m.y)
+        return m, DEFAULT_L2
+
+    def test_keeps_helpful_lower_lobbies(self):
+        from mira.model import lobbycut
+        m, l2 = self.data(lower_is_noise=False)
+        cut, rows = lobbycut.choose(m, l2)
+        self.assertEqual(cut, 16)
+        self.assertEqual([r.cut for r in rows], [19, 16])  # no rank-18 lobbies: that cut adds nothing, skipped
+
+    def test_drops_lower_lobbies_that_dont_help(self):
+        from mira.model import lobbycut
+        m, l2 = self.data(lower_is_noise=True)
+        cut, _ = lobbycut.choose(m, l2)
+        self.assertEqual(cut, 19)

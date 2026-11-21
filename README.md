@@ -192,6 +192,11 @@ the crawler itself has no dependencies.
   II, with the same per-brawler win-rate error (1.47% vs 1.45%). The one visible cost is skill
   brawlers: Legendary players do worse with Leon, which drags his strength down a little.
   `evaluate` prints the per-brawler error next to the Masters-only model's, to keep watching this.
+  `train --auto-lobby-rank` (used by the daily retrain, `model/lobbycut.py`) makes this decision each
+  run: starting from Masters only, it loosens to Legendary III, then Legendary I, only while each
+  step beats the previous choice with a 95% CI below 0 and keeps per-brawler error within 0.1 point
+  of the Masters-only model's. So lower lobbies drop out by themselves once the Masters data no
+  longer needs them.
 - **Rank tiers**: each match gets a tier from its lobby's average rank (Legendary, Masters I,
   Masters II, Masters III+). The win model adds per-tier brawler strength terms (shrunk toward the
   shared value by their own L2) and the pick model keeps per-tier pick rates per map. `evaluate`

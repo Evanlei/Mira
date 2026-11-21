@@ -32,7 +32,7 @@ sqlite3 mira.db ".timeout 60000" "VACUUM INTO '$SNAP'"
 
 # 2. Train with the settings `mira evaluate` chose (see README: Training and evaluation).
 log "train"
-"$UV" run mira --db "$SNAP" train --rank-factor 0.5 --tier-l2 1000 --out "$OUT"
+"$UV" run mira --db "$SNAP" train --auto-lobby-rank --rank-factor 0.5 --tier-l2 1000 --out "$OUT"
 
 # 3. Fresh copy of main to commit in.
 git fetch -q origin main
@@ -69,8 +69,9 @@ fi
 git -C "$WORK" add web/public/model.json web/src/engine/parity.fixtures.json
 git -C "$WORK" commit -q -m "Retrain the model on $total Ranked matches (automatic)
 
-Daily retrain by scripts/retrain.sh: all Legendary I+ lobbies, at 0.5 per
-rank below Masters, plus pro pick/ban rates; rank-tier strength terms held
+Daily retrain by scripts/retrain.sh: lobbies down to the rank --auto-lobby-rank
+chose (see the log), 0.5 per rank below Masters, plus pro pick/ban rates;
+rank-tier strength terms held
 tight (L2 1000).
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"

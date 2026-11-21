@@ -300,6 +300,14 @@ def cmd_train(args: argparse.Namespace) -> int:
     from .model.winmodel import DEFAULT_L2, WinModel
 
     m, plog = _load_training_data(args)
+    if args.auto_lobby_rank:
+        from .model import lobbycut
+        cut_l2 = {**DEFAULT_L2, **({"tier": args.tier_l2, "tier_mode": 3 * args.tier_l2} if args.tier_l2 else {})}
+        cut, rows = lobbycut.choose(m, cut_l2, plog, args.half_life, args.pre_patch_factor, args.rank_factor,
+                                    cuts=tuple(c for c in lobbycut.CUTS if c >= (args.min_lobby_rank or 0)))
+        print(lobbycut.format_rows(rows, {19: "Masters I", 18: "Legendary III", 16: "Legendary I"}))
+        m = m.subset(m.ranks() >= cut)
+        args.min_lobby_rank = cut
     w = evaluate.weights_for(m, plog, args.half_life, args.pre_patch_factor, args.rank_factor, args.top_boost)
     if args.no_tune:
         l2 = dict(DEFAULT_L2)
@@ -677,6 +685,10 @@ def build_parser() -> argparse.ArgumentParser:
                     help="fix the pro pick-rate prior on our picks instead of tuning it (0 = off)")
     sp.add_argument("--ban-lambda", type=float,
                     help="fix the weight of the pro ban rate in ban suggestions instead of tuning it (0 = off)")
+    sp.add_argument("--auto-lobby-rank", action="store_true",
+                    help="pick the lowest lobby rank to train on (Legendary I, Legendary III or Masters I, not "
+                         "below --min-lobby-rank) by held-out log loss on all-Masters games; lower lobbies drop "
+                         "out once they stop clearly helping (model/lobbycut.py)")
     sp.add_argument("--tier-l2", type=float,
                     help="fix the per-tier strength penalty instead of tuning it (tier_mode gets 3x); "
                          "1000 keeps tiers close to the shared model, which `evaluate` showed is best for "
