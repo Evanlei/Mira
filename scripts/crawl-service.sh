@@ -16,7 +16,7 @@ LOG="$HOME/Library/Logs/mira-crawl.log"
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 UV=$(command -v uv || echo "$HOME/.local/bin/uv")
 RATE=${MIRA_RATE:-30}
-WORKERS=${MIRA_WORKERS:-24}
+WORKERS=${MIRA_WORKERS:-48}
 
 case "${1:-}" in
 install)
