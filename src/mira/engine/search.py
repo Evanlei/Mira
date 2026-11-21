@@ -192,7 +192,7 @@ PRO_BAN_CANDIDATES = 6  # pro favourites added to the ban candidates when ban_la
 
 def suggest_bans(model: Model, mp: int, we_first: bool, already_banned: set[int], n: int = 5,
                  candidates: int = 15, settings: Settings | None = None,
-                 allowed: set[int] | None = None) -> list[tuple[int, float, float]]:
+                 allowed: set[int] | None = None, protect_first_pick: bool = True) -> list[tuple[int, float, float]]:
     """Bans ranked by how much removing the brawler raises our expected win chance.
 
     Returns (brawler, win chance if banned, gain vs not banning). Candidates are the brawlers
@@ -200,6 +200,13 @@ def suggest_bans(model: Model, mp: int, we_first: bool, already_banned: set[int]
     model has pro data and ban_lambda > 0) the pros' most-banned brawlers there. They're ranked
     by gain + ban_lambda * pro ban rate: Ranked has no ban data, so the pros' bans are our only
     direct evidence of what's worth banning.
+
+    When we pick first, our own top first pick (the search's first suggestion, from ``allowed``
+    when the player's brawlers are known) is never suggested: take it instead of banning it.
+    BobbyBS's rule, and what pros do: on ~1,900 pro maps the first-pick team banned the mode's
+    top brawler 13% of the time, the second-pick team 34%. A strong brawler outside the player's
+    pool isn't their first pick, so it can still be banned (his exception: ban it if you can't
+    play it).
     """
     s = settings or Settings(our_k=6, our_pairs=8, their_n=4, their_pairs=6, pair_pool=6)
     base = Searcher(model, mp, set(already_banned), allowed, s).run((), (), we_first).win
@@ -211,6 +218,10 @@ def suggest_bans(model: Model, mp: int, we_first: bool, already_banned: set[int]
         # Also try what pros ban most here; rank by gain + ban_lambda * pro ban rate.
         pool += [b for b in sorted(p, key=lambda b: model.pro_ban_rate(b, mp), reverse=True)[:PRO_BAN_CANDIDATES]
                  if b not in pool]
+    if we_first and protect_first_pick:
+        first = Searcher(model, mp, set(already_banned), allowed).run((), (), True).suggestions
+        if first:
+            pool = [b for b in pool if b != first[0].picks[0]]
     out = []
     for b in pool:
         v = Searcher(model, mp, set(already_banned) | {b}, allowed, s).run((), (), we_first).win

@@ -187,6 +187,7 @@ export function suggestBans(
   n = 5,
   candidates = 15,
   allowed: ReadonlySet<number> | null = null,
+  protectFirstPick = true,
 ): BanSuggestion[] {
   const base = new Searcher(m, mp, new Set(alreadyBanned), allowed, BAN_SETTINGS).run([], [], weFirst).win;
   const p = m.pickProbs([], [], alreadyBanned, mp);
@@ -197,6 +198,16 @@ export function suggestBans(
     // Also try what pros ban most here; rank by gain + banLambda * pro ban rate.
     const pros = [...p.keys()].sort((a, b) => m.proBanRate(b, mp) - m.proBanRate(a, mp)).slice(0, PRO_BAN_CANDIDATES);
     for (const b of pros) if (!pool.includes(b)) pool.push(b);
+  }
+  // When we pick first, never suggest banning our own top first pick (from our pool when the
+  // player's brawlers are known): take it instead. BobbyBS's rule, and what pros do (first-pick
+  // teams ban the mode's top brawler 13% of the time, second-pick teams 34%).
+  if (weFirst && protectFirstPick) {
+    const first = new Searcher(m, mp, new Set(alreadyBanned), allowed).run([], [], true).suggestions[0];
+    if (first) {
+      const i = pool.indexOf(first.picks[0]);
+      if (i >= 0) pool.splice(i, 1);
+    }
   }
   const out = pool.map((b) => {
     const win = new Searcher(m, mp, new Set([...alreadyBanned, b]), allowed, BAN_SETTINGS).run([], [], weFirst).win;

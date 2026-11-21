@@ -48,3 +48,14 @@ describe("our brawler pool", () => {
     expect(restricted).not.toEqual(free);
   });
 });
+
+describe("ban suggestions when we pick first", () => {
+  it("never suggest banning our own top first pick", () => {
+    const data = JSON.parse(readFileSync(join(__dirname, "..", "..", "public", "model.json"), "utf8")) as ModelJson;
+    const m = new Model(data);
+    for (const mp of [0, 1, 2]) {
+      const first = new Searcher(m, mp, new Set()).run([], [], true).suggestions[0].picks[0];
+      expect(suggestBans(m, mp, true, new Set(), 5).map((x) => x.brawler)).not.toContain(first);
+    }
+  });
+});

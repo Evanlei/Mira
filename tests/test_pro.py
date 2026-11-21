@@ -239,3 +239,32 @@ class TurnRoleTests(unittest.TestCase):
         late = m.pick_probs([], [], set(), 0, turn=5)[2]
         self.assertGreater(late, 5 * early)
         self.assertEqual(m.pick_probs([], [], set(), 0)[2], early)  # no turn: no adjustment
+
+
+class ProtectFirstPickTests(unittest.TestCase):
+    """Picking first, we take our best first pick rather than ban it (BobbyBS; pro ban data)."""
+
+    def model(self):
+        from mira.engine.model import Model
+        data = dict(toy_model().data)
+        B = len(data["brawlers"])
+        data["ranking"] = {"kappa": 0.0, "gamma": 0.0, "rho": 0.0, "ban_lambda": 1.0, "strength_sd": [[[0.0]] * B]}
+        # Pros ban brawler 0 (our best first pick) most.
+        data["pro"] = {"log_pick": [[-2.0]] * B, "ban": [[0.9 if b == 0 else 0.1] for b in range(B)]}
+        return Model(data)
+
+    def test_never_bans_our_first_pick_when_we_pick_first(self):
+        from mira.engine.search import Searcher, suggest_bans
+        m = self.model()
+        self.assertEqual(Searcher(m, 0, set()).run((), (), True).suggestions[0].picks, (0,))
+        self.assertNotIn(0, [b for b, _, _ in suggest_bans(m, 0, True, set(), n=5)])
+        self.assertIn(0, [b for b, _, _ in suggest_bans(m, 0, True, set(), n=5, protect_first_pick=False)])
+
+    def test_bans_it_when_they_pick_first(self):
+        from mira.engine.search import suggest_bans
+        self.assertEqual(suggest_bans(self.model(), 0, False, set(), n=5)[0][0], 0)
+
+    def test_outside_our_pool_it_can_be_banned(self):
+        from mira.engine.search import suggest_bans
+        pool = set(range(1, 8))  # we don't own brawler 0
+        self.assertIn(0, [b for b, _, _ in suggest_bans(self.model(), 0, True, set(), n=5, allowed=pool)])

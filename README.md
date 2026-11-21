@@ -293,6 +293,14 @@ calls the winner, how many pro bans are in Mira's top bans (vs Ranked pick rate 
 ban rate on the map in other matches), and where Mira ranks each pro pick with the other five known
 (vs the Masters pick rate).
 
+**Bans when you pick first:** `suggest_bans` never suggests your own top first pick (the
+search's first suggestion, from your power-11 brawlers when your tag is connected): take it
+instead. That's BobbyBS's rule, and pros follow it: on ~1,900 pro maps with a known first pick,
+the first-pick team banned the mode's top brawler 13% of the time, the second-pick team 34%.
+Without the rule Mira banned its own first pick on 8 of the 20 busiest maps whichever side
+picked first. A strong brawler you don't own isn't your first pick, so it can still be banned
+(his exception: ban it if you can't play it). `protect_first_pick=False` turns it off.
+
 **Caveat:** the "expected win chance" is optimistic. The search keeps the best of several noisy
 estimates and assumes the opponent picks like a typical player, not a counter-picker. Trust the
 ranking more than the absolute %.
