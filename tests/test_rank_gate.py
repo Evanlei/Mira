@@ -300,8 +300,20 @@ class PeakGateTests(unittest.TestCase):
 
     def test_profiles_are_not_reread_within_a_week(self):
         self.crawl()
-        self.assertFalse(db.needs_profile(self.conn, "#LA", 19, crawler.PROFILE_MAX_AGE))
-        self.assertTrue(db.needs_profile(self.conn, "#LA", 19, crawler.PROFILE_MAX_AGE, now=time.time() + 8 * 86400) is False)
+        self.assertIsNone(db.needs_profile(self.conn, "#LA", 19, crawler.PROFILE_MAX_AGE))
+        # #LA has been Masters, so the gate never re-reads it; only an Elo refresh does.
+        self.assertIsNone(db.needs_profile(self.conn, "#LA", 19, crawler.PROFILE_MAX_AGE, now=time.time() + 8 * 86400))
+        self.assertEqual(db.needs_profile(self.conn, "#LA", 19, crawler.PROFILE_MAX_AGE, now=time.time() + 2 * 86400,
+                                          elo_max_age=86400), "elo")
+
+    def test_elo_refresh_reads_masters_profiles_and_keeps_history(self):
+        self.crawl()
+        later = time.time() + 2 * 86400
+        self.assertEqual(db.needs_profile(self.conn, "#LA", 19, crawler.PROFILE_MAX_AGE, now=later, elo_max_age=86400), "elo")
+        db.record_profile(self.conn, "#LA", {"highestAllTimeRankedRank": 20, "rankedElo": 7100}, now=later)
+        rows = self.conn.execute("SELECT elo FROM player_elo WHERE tag='#LA' ORDER BY at").fetchall()
+        self.assertEqual(rows[-1][0], 7100)
+        self.assertIsNone(db.needs_profile(self.conn, "#LA", 19, crawler.PROFILE_MAX_AGE, now=later + 60, elo_max_age=86400))
 
     def test_training_keeps_legendary_lobbies_only_of_ex_masters(self):
         from mira.model import dataset

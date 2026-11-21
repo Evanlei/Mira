@@ -281,12 +281,37 @@ class definitions, 9 are unlabeled. Two uses, both measured:
   tanks beat space makers, stacking one class is the worst kind of pair) but don't improve held-out
   log loss (+-0.0002): with 240k games the brawler pairs already carry this. They are off unless
   `Matches.brawler_roles` is set, which training doesn't do.
-- Role by turn in the opponent model (`model/turnroles.py`, exported as `turn_roles`): from the
+- Role by turn in the opponent model (`model/turnroles.py`, exported as `turn_roles` only with
+  `train --pro-turn-roles`; see "Pick order in Ranked" for why it's off): from the
   ~1,900 pro drafts with a known pick order, how much more or less likely each role is at each
   draft turn (throwers: 6% of first picks, 14% of last picks; space makers peak at 4-5; snipers
   early). Fit on 2023-24 and tested on 2025-26, it improves the log-likelihood of pro picks (only
   earlier picks known) from -5.113 to -5.106, most at the last picks. Both engines add
   delta[turn][role] to each pick score at that turn.
+
+### Pick order in Ranked
+
+The battle log has no pick order, but `model/order.py` rebuilds it:
+- **Sets.** Ranked is best of 3 and every game of a set is logged with the same six brawlers
+  (230,573 sets checked, 1 exception), so a set is one draft: ~230k distinct drafts, not ~540k.
+  The win model still trains on games (each a real result).
+- **Within a team, solo players pick first, lowest Elo first; party members pick last.** The
+  Elo rule is from pro player Enraged (NAVI); duo-last is from the project owner. Ordered this
+  way, later picks counter earlier enemy picks, and the edge grows with how much later the pick
+  is (190k sets, every pair of turns ~+-0.0001); it doesn't grow with the Elo gap, so it's the
+  order, not skill. On teams with a duo, "solo first, duo last" fits twice as well as plain Elo
+  order (+0.0035 vs +0.0017). Parties are teammates seen in 3+ different sets together; about
+  half of all sets involve one.
+- **Which team picks first** is weakly identified (lower average Elo is a little better than a
+  coin flip); within-team order carries most of the signal.
+- **Elo** is the profile reading nearest the set: the crawler re-reads every followed player's
+  profile daily (`crawl --elo-hours`, default 24) and keeps each reading in `player_elo`.
+
+First result: on 6,000 held-out ordered sets (Legendary I+; Masters players had no Elo until the
+daily refresh), knowing the turn barely changes which brawler a solo-queue player picks
+(brawler-by-turn rates: +0.0007 log-lik), and the pro role-by-turn pattern makes predictions
+slightly worse (-3.6711 vs -3.6680). So `train` leaves the pro turn adjustment off
+(`--pro-turn-roles` turns it on). Rerun on Masters sets once their Elo has been collected.
 
 `pro-eval` (`src/mira/proeval.py`) scores a model on recent pro maps it knows: whether the win model
 calls the winner, how many pro bans are in Mira's top bans (vs Ranked pick rate and the pros' own

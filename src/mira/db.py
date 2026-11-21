@@ -60,6 +60,13 @@ CREATE TABLE IF NOT EXISTS battle_players (
 CREATE INDEX IF NOT EXISTS idx_bp_brawler ON battle_players (brawler_id);
 CREATE INDEX IF NOT EXISTS idx_bp_player ON battle_players (player_tag);
 
+CREATE TABLE IF NOT EXISTS player_elo (
+    tag   TEXT NOT NULL,
+    at    REAL NOT NULL,                              -- unix seconds the profile was read
+    elo   INTEGER NOT NULL,                           -- rankedElo then
+    PRIMARY KEY (tag, at)
+);
+
 CREATE TABLE IF NOT EXISTS brawlers (
     id    INTEGER PRIMARY KEY,
     name  TEXT NOT NULL
@@ -187,26 +194,37 @@ def earliest_due(
 PRO_RANK = 22  # "Pro", the top Ranked rank
 
 
-def needs_profile(conn: sqlite3.Connection, tag: str, min_peak: int, max_age: float, now: float | None = None) -> bool:
-    """Whether to read this player's profile (peak rank) before their battle log: not a seed,
-    not already seen at ``min_peak`` or higher, and no profile read within ``max_age`` seconds."""
+def needs_profile(conn: sqlite3.Connection, tag: str, min_peak: int | None, max_age: float,
+                  now: float | None = None, elo_max_age: float | None = None) -> str | None:
+    """Why to read this player's profile before their battle log, or None:
+    "gate"  not a seed, not yet seen at ``min_peak`` or higher, no profile within ``max_age``
+            (the peak gate: a low peak skips the battle log);
+    "elo"   any player whose profile (Elo) is older than ``elo_max_age``: Elo orders the picks
+            within a team (model/order.py), so it should be close to the games it orders."""
     now = time.time() if now is None else now
     row = conn.execute("SELECT is_seed, max_rank, peak_rank, profile_at FROM players WHERE tag = ?", (tag,)).fetchone()
-    if row is None or row["is_seed"]:
-        return False
-    if max(row["max_rank"] or 0, row["peak_rank"] or 0) >= min_peak:
-        return False
-    return row["profile_at"] is None or row["profile_at"] < now - max_age
+    if row is None:
+        return None
+    stale = lambda age: row["profile_at"] is None or row["profile_at"] < now - age  # noqa: E731
+    if (min_peak is not None and not row["is_seed"] and max(row["max_rank"] or 0, row["peak_rank"] or 0) < min_peak
+            and stale(max_age)):
+        return "gate"
+    if elo_max_age is not None and stale(elo_max_age):
+        return "elo"
+    return None
 
 
 def record_profile(conn: sqlite3.Connection, tag: str, profile: dict, now: float | None = None) -> int | None:
     """Store the player's all-time peak rank and Elo from /players/{tag}; returns the peak."""
     now = time.time() if now is None else now
     peak = profile.get("highestAllTimeRankedRank")
+    elo = profile.get("rankedElo")
     conn.execute(
         "UPDATE players SET peak_rank = ?, elo = ?, profile_at = ? WHERE tag = ?",
-        (peak, profile.get("rankedElo"), now, tag),
+        (peak, elo, now, tag),
     )
+    if elo is not None:
+        conn.execute("INSERT OR IGNORE INTO player_elo VALUES (?, ?, ?)", (tag, now, elo))
     return peak
 
 

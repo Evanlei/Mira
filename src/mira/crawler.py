@@ -42,6 +42,7 @@ DEFAULT_WORKERS = 8
 # (highestAllTimeRankedRank); below DEFAULT_MIN_PEAK they're skipped and not crawled.
 DEFAULT_MIN_PEAK = 19  # Masters I
 PROFILE_MAX_AGE = 7 * 24 * 3600
+ELO_MAX_AGE = 24 * 3600  # refresh every followed player's Elo daily (pick order, model/order.py)
 SCRIM_TYPE = "friendly"
 SCRIM_MIN_PROS = 4
 
@@ -347,6 +348,7 @@ def crawl(
     watch: bool = False,
     pro_scrims: bool = False,
     min_peak: int | None = None,
+    elo_max_age: float | None = None,
     sleep: Callable[[float], None] = time.sleep,
     max_idle_sleep: float = 300.0,
 ) -> CrawlStats:
@@ -371,14 +373,15 @@ def crawl(
             return "time limit"
         return None
 
-    def fetch(tag: str, profile_first: bool):
-        """(profile or None, battle log | ApiError | None). No log when the peak gate rejects."""
+    def fetch(tag: str, why: str | None):
+        """(profile or None, battle log | ApiError | None). No log when the peak gate rejects.
+        ``why``: "gate" (peak check) or "elo" (Elo refresh) reads the profile first."""
         profile = None
         try:
-            if profile_first:
+            if why:
                 profile = client.player(tag)
                 peak = profile.get("highestAllTimeRankedRank")
-                if peak is not None and peak < min_peak:
+                if why == "gate" and peak is not None and peak < min_peak:
                     return profile, None
             return profile, client.battlelog(tag)
         except AuthError:
@@ -429,8 +432,9 @@ def crawl(
                         for tag in db.next_players(conn, room + len(busy), recrawl_after, min_rank=min_rank,
                                                    min_peak=min_peak):
                             if tag not in busy and room > 0:
-                                first = min_peak is not None and db.needs_profile(conn, tag, min_peak, PROFILE_MAX_AGE)
-                                in_flight[pool.submit(fetch, tag, first)] = tag
+                                why = db.needs_profile(conn, tag, min_peak, PROFILE_MAX_AGE,
+                                                       elo_max_age=elo_max_age)
+                                in_flight[pool.submit(fetch, tag, why)] = tag
                                 room -= 1
                 if not in_flight:
                     if reason:

@@ -97,6 +97,7 @@ def cmd_crawl(args: argparse.Namespace) -> int:
             watch=args.watch,
             pro_scrims=not args.no_pro_scrims,
             min_peak=args.min_peak or None,
+            elo_max_age=args.elo_hours * 3600 if args.elo_hours else None,
         )
     print("Done: " + stats.summary() + f"; {client.request_count} API requests")
     if min_rank:
@@ -337,7 +338,9 @@ def cmd_train(args: argparse.Namespace) -> int:
         from pathlib import Path
 
         from .model import roles as role_data, turnroles
-        if Path(role_data.DEFAULT_PATH).is_file():
+        # Off by default: on 6,000 held-out ordered Ranked sets the pro turn pattern made the opponent
+        # model slightly worse (-3.6711 vs -3.6680 log-lik); solo queue doesn't draft like pros.
+        if args.pro_turn_roles and Path(role_data.DEFAULT_PATH).is_file():
             c = turnroles.counts(pro_rows, turnroles.role_lookup(role_data.DEFAULT_PATH))
             if c.sum():
                 extra_pro["turn_roles"] = turnroles.to_dict(turnroles.fit(c), role_data.load(m.brawler_names),
@@ -621,6 +624,9 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--min-peak", type=_rank_arg, default=crawler.DEFAULT_MIN_PEAK,
                     help="skip players whose all-time peak rank (read from their profile once a week) is "
                          "below this; 0 disables (default: masters1 = 19)")
+    sp.add_argument("--elo-hours", type=float, default=crawler.ELO_MAX_AGE / 3600,
+                    help="re-read each player's profile when their Elo is older than this, so pick order "
+                         "can be rebuilt from Elo (model/order.py); 0 disables (default: %(default)g)")
     sp.add_argument("--no-pro-scrims", action="store_true",
                     help="don't store friendly 3v3s where 4+ of the 6 players are pros (Pro rank or seeds)")
     sp.add_argument("--watch", action="store_true",
@@ -694,6 +700,9 @@ def build_parser() -> argparse.ArgumentParser:
                     help="fix the pro pick-rate prior on our picks instead of tuning it (0 = off)")
     sp.add_argument("--ban-lambda", type=float,
                     help="fix the weight of the pro ban rate in ban suggestions instead of tuning it (0 = off)")
+    sp.add_argument("--pro-turn-roles", action="store_true",
+                    help="add the pro role-by-turn adjustment to the opponent model (model/turnroles.py); off by "
+                         "default because it predicted Ranked picks slightly worse")
     sp.add_argument("--auto-lobby-rank", action="store_true",
                     help="pick the lowest lobby rank to train on (Legendary I, Legendary III or Masters I, not "
                          "below --min-lobby-rank) by held-out log loss on all-Masters games; lower lobbies drop "
