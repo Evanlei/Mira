@@ -69,8 +69,8 @@ fi
 git -C "$WORK" add web/public/model.json web/src/engine/parity.fixtures.json
 git -C "$WORK" commit -q -m "Retrain the model on $total Ranked matches (automatic)
 
-Daily retrain by scripts/retrain.sh: Legendary I+ lobbies of players who have
-been Masters, at 0.5 per rank below Masters; rank-tier strength terms held
+Daily retrain by scripts/retrain.sh: all Legendary I+ lobbies, at 0.5 per
+rank below Masters, plus pro pick/ban rates; rank-tier strength terms held
 tight (L2 1000).
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"

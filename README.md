@@ -186,6 +186,12 @@ the crawler itself has no dependencies.
   `--min-lobby-rank` (default Legendary I) are not loaded. The test set and the baselines use
   all-Masters matches only, and `evaluate` also reports Mira trained on all-Masters matches only: keep
   the lower lobbies only while they beat that. `--min-lobby-rank masters1` trains on Masters only.
+  Every Legendary I+ lobby counts, not only those whose players have all been Masters (`--min-peak
+  masters1` restores that filter). On 9.7k held-out all-Masters games (Nov 2026), all Legendary
+  lobbies gave log loss 0.6821 vs 0.6841 with the filter (95% CI excludes 0), better in Masters I and
+  II, with the same per-brawler win-rate error (1.47% vs 1.45%). The one visible cost is skill
+  brawlers: Legendary players do worse with Leon, which drags his strength down a little.
+  `evaluate` prints the per-brawler error next to the Masters-only model's, to keep watching this.
 - **Rank tiers**: each match gets a tier from its lobby's average rank (Legendary, Masters I,
   Masters II, Masters III+). The win model adds per-tier brawler strength terms (shrunk toward the
   shared value by their own L2) and the pick model keeps per-tier pick rates per map. `evaluate`

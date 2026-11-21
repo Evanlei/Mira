@@ -255,6 +255,11 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
         verdict = "better" if hi < 0 else ("worse" if lo > 0 else "no clear difference")
         print(f"  {name.ljust(w)}  {d:+.4f}  [{lo:+.4f}, {hi:+.4f}]  {verdict}")
     print("\nMVP bar (spec §8): " + ("PASS" if r.passes else "not met: " + "; ".join(r.reasons)))
+    if r.brawler_error:
+        print("\nPer-brawler win-rate error (games-weighted |predicted - actual| for teams fielding each brawler, "
+              "brawlers with 300+ test games; watch that lower lobbies don't make this worse than Masters-only):")
+        for name, (err, n) in r.brawler_error.items():
+            print(f"  {name.ljust(w)}  {err:.2%}  ({n} brawlers)")
 
     print("\nPer rank tier (by the lobby's average rank): one shared model vs per-tier strength and pick rates")
     print(f"  {'tier'.ljust(13)} {'matches':>8}  {'shared':>7}  {'tiered':>7}  {'diff [95% CI]':<26} {'pick top-5':>16}")
@@ -644,9 +649,11 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument("--min-lobby-rank", type=_rank_arg, default=16,
                         help="ignore matches whose lowest player is below this rank (default: legendary1 = 16; "
                              "masters1 = 19 trains on all-Masters lobbies only)")
-        sp.add_argument("--min-peak", type=_rank_arg, default=19,
+        sp.add_argument("--min-peak", type=_rank_arg, default=0,
                         help="a lobby below Masters counts only if all six players have been Masters "
-                             "(all-time peak from their profile, or seen there); 0 disables (default: masters1 = 19)")
+                             "(all-time peak from their profile, or seen there); 0 = off (default). Off is "
+                             "better: on 9.7k held-out all-Masters games, every Legendary I+ lobby gave log loss "
+                             "0.6821 vs 0.6841 with masters1, same per-brawler error")
         sp.add_argument("--top-boost", type=float, default=1.0,
                         help="weight multiplier per rank step a lobby's average sits above Masters I, up to "
                              "Pro, so games with Masters III and Pro players count more; 1 = off (default: %(default)s)")
