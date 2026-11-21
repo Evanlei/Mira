@@ -312,10 +312,19 @@ def cmd_train(args: argparse.Namespace) -> int:
     pick = PickModel.fit(m, w)
     pick.alpha, pick.beta = pm.alpha, pm.beta
     print(f"Pick model: alpha={pick.alpha:g}, beta={pick.beta:g}")
-    kappa, gamma = _tune_ranking(args, m, w, l2, pm, k)
+    from . import pro
+    from .model import prorates
+    pro_rows = pro.load_rows(_open_db(args))
+    kappa, gamma, rho, ban_lambda = _tune_ranking(args, m, w, l2, pm, k, pro_rows)
+    extra_pro = {}
+    if pro_rows:
+        rates = prorates.compute(pro_rows, m.brawler_names, m.maps, m.modes, np.exp(pick.log_base))
+        extra_pro = {"pro": prorates.to_dict(rates)}
+        print(f"Pro rates: {rates.n_total:.0f} weighted pro maps, {rates.since} .. {rates.until}")
     data = export.to_dict(model, m, export.game_counts(m, args.rank_factor), extra={
         "pick_model": export.pick_model_dict(pick),
-        "ranking": export.ranking_dict(kappa, gamma, model.strength_sd(m, w)),
+        "ranking": export.ranking_dict(kappa, gamma, model.strength_sd(m, w), rho, ban_lambda),
+        **extra_pro,
         "patches": [{"date": p.date, "changes": p.changes} for p in plog],
         "weighting": {"half_life_days": args.half_life, "pre_patch_factor": args.pre_patch_factor,
                       "min_lobby_rank": args.min_lobby_rank, "rank_factor": args.rank_factor,
@@ -328,34 +337,68 @@ def cmd_train(args: argparse.Namespace) -> int:
     return 0
 
 
-def _tune_ranking(args, m, w, l2, pick_fit, k: int) -> tuple[float, float]:
-    """kappa (uncertainty penalty) and gamma (pick-rate prior) for ranking our picks: fit on the
-    oldest 80% of matches, scored on the newest 20% (see evaluate.ranking_report)."""
+def _tune_ranking(args, m, w, l2, pick_fit, k: int, pro_rows) -> tuple[float, float, float, float]:
+    """kappa (uncertainty penalty), gamma (pick-rate prior) and rho (pro pick-rate prior) for
+    ranking our picks, and ban_lambda (pro ban rate) for bans. The win model is fit on the oldest
+    80% of matches and scored on the newest 20% (see evaluate.ranking_report); pro rates are built
+    from pro maps older than the newest PRO_TEST_DAYS days, which are the pro test (model/protune.py)."""
+    import json
+
     import numpy as np
 
-    from .model import evaluate, export
+    from .engine.model import Model
+    from .model import evaluate, export, prorates, protune
     from .model.winmodel import WinModel
 
-    if args.kappa is not None and args.gamma is not None:
-        return args.kappa, args.gamma
+    fixed = [args.kappa, args.gamma, args.rho, args.ban_lambda]
+    if all(v is not None for v in fixed):
+        return tuple(fixed)
     fit = m.subset(slice(0, k))
     wm = WinModel.fit(fit, w[:k], l2)
+    sd = wm.strength_sd(fit, w[:k])
     games = np.array(export.game_counts(fit, args.rank_factor)["brawler_map"])
-    rows = evaluate.ranking_report(wm, pick_fit.log_base_tier, wm.strength_sd(fit, w[:k]), games,
-                                   m.subset(slice(k, None)))
-    best = evaluate.choose_ranking(rows)
+    cutoff, before, after = protune.pro_split(pro_rows)
+    test_pro = protune.pro_matches(m, after)
+    rates = None
+    if before and test_pro:
+        rates = prorates.compute(before, m.brawler_names, m.maps, m.modes, np.exp(pick_fit.log_base), until=cutoff)
+    rows = evaluate.ranking_report(wm, pick_fit.log_base_tier, sd, games, m.subset(slice(k, None)),
+                                   pro_log=rates.log_pick if rates else None, rhos=protune.RHO_GRID)
+    if rates:
+        agree = protune.pick_agreement(wm, pick_fit.log_base_tier, sd, rates.log_pick, m, test_pro,
+                                       [(r.kappa, r.gamma, r.rho) for r in rows])
+        best = protune.choose(rows, agree)
+    else:
+        agree, best = {}, evaluate.choose_ranking(rows)
     covs = "/".join(f"{c:.0%}" for c in evaluate.COVERAGES)
-    print(f"Ranking our picks (held-out win rate of the {covs} of picks closest to our top choice; "
-          f"share with < {evaluate.RARE_GAMES} games on the map):")
+    print(f"Ranking our picks (held-out win rate of the {covs} of Masters picks closest to our top choice; "
+          f"share with < {evaluate.RARE_GAMES} games on the map"
+          + (f"; pro picks in our top {protune.PICK_K} on {len(test_pro)} pro maps since {cutoff}" if agree else "")
+          + "):")
     for r in rows:
-        if r.kappa in (0.0, best.kappa) or r.gamma in (0.0, best.gamma):
+        if sum([r.kappa == best.kappa, r.gamma == best.gamma, r.rho == best.rho]) >= 2:
             mark = "  <-" if r is best else ""
-            print(f"  kappa={r.kappa:<4g} gamma={r.gamma:<5g} "
-                  + "  ".join(f"{x:.2%} (rare {q:.1%})" for x, q in zip(r.realized, r.rare)) + mark)
+            a = agree.get((r.kappa, r.gamma, r.rho))
+            print(f"  kappa={r.kappa:<4g} gamma={r.gamma:<5g} rho={r.rho:<5g}"
+                  + "  ".join(f"{x:.2%} (rare {q:.1%})" for x, q in zip(r.realized, r.rare))
+                  + (f"  pro {a:.1%}" if a is not None else "") + mark)
     kappa = best.kappa if args.kappa is None else args.kappa
     gamma = best.gamma if args.gamma is None else args.gamma
-    print(f"Ranking: kappa={kappa:g}, gamma={gamma:g}")
-    return kappa, gamma
+    rho = best.rho if args.rho is None else args.rho
+    ban_lambda = 0.0 if args.ban_lambda is None else args.ban_lambda
+    if rates and args.ban_lambda is None:
+        data = export.to_dict(wm, fit, export.game_counts(fit, args.rank_factor), extra={
+            "pick_model": export.pick_model_dict(pick_fit),
+            "ranking": export.ranking_dict(kappa, gamma, sd, rho, 0.0),
+            "pro": prorates.to_dict(rates)})
+        engine = Model(json.loads(json.dumps(data)))
+        ban_agree = protune.ban_agreement(engine, test_pro)
+        ban_lambda = protune.choose_ban_lambda(ban_agree)
+        print(f"Bans (pro bans in our top {protune.BAN_K} on pro maps since {cutoff}): "
+              + "  ".join(f"lambda={lam:g} {a:.1%}" + (" <-" if lam == ban_lambda else "")
+                          for lam, a in ban_agree.items()))
+    print(f"Ranking: kappa={kappa:g}, gamma={gamma:g}, rho={rho:g}; bans: ban_lambda={ban_lambda:g}")
+    return kappa, gamma, rho, ban_lambda
 
 
 def _engine(args):
@@ -623,6 +666,10 @@ def build_parser() -> argparse.ArgumentParser:
                     help="fix the uncertainty penalty on our picks instead of tuning it (0 = off)")
     sp.add_argument("--gamma", type=float,
                     help="fix the pick-rate prior on our picks instead of tuning it (0 = off)")
+    sp.add_argument("--rho", type=float,
+                    help="fix the pro pick-rate prior on our picks instead of tuning it (0 = off)")
+    sp.add_argument("--ban-lambda", type=float,
+                    help="fix the weight of the pro ban rate in ban suggestions instead of tuning it (0 = off)")
     sp.add_argument("--tier-l2", type=float,
                     help="fix the per-tier strength penalty instead of tuning it (tier_mode gets 3x); "
                          "1000 keeps tiers close to the shared model, which `evaluate` showed is best for "

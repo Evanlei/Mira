@@ -173,6 +173,9 @@ export class Searcher {
   }
 }
 
+/** Pro favourites added to the ban candidates when the model weighs pro bans (banLambda > 0). */
+export const PRO_BAN_CANDIDATES = 6;
+
 export type BanSuggestion = { brawler: number; win: number; gain: number };
 
 export function suggestBans(
@@ -189,9 +192,15 @@ export function suggestBans(
   // Pessimistic strength, so a noisy few-game brawler isn't a top ban candidate.
   const threat = (b: number) => p.get(b)! * (1 + Math.max(0, m.strength(b, mp) - m.kappa * m.sdOf(b, mp)));
   const pool = [...p.keys()].sort((a, b) => threat(b) - threat(a)).slice(0, candidates);
+  if (m.banLambda) {
+    // Also try what pros ban most here; rank by gain + banLambda * pro ban rate.
+    const pros = [...p.keys()].sort((a, b) => m.proBanRate(b, mp) - m.proBanRate(a, mp)).slice(0, PRO_BAN_CANDIDATES);
+    for (const b of pros) if (!pool.includes(b)) pool.push(b);
+  }
   const out = pool.map((b) => {
     const win = new Searcher(m, mp, new Set([...alreadyBanned, b]), allowed, BAN_SETTINGS).run([], [], weFirst).win;
     return { brawler: b, win, gain: win - base };
   });
-  return out.sort((a, b) => b.gain - a.gain).slice(0, n);
+  const key = (x: BanSuggestion) => x.gain + m.banLambda * m.proBanRate(x.brawler, mp);
+  return out.sort((a, b) => key(b) - key(a)).slice(0, n);
 }

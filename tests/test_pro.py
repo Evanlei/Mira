@@ -142,3 +142,73 @@ class EvalTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RatesTests(unittest.TestCase):
+    """Pro rates shrink toward the mode, then Masters (picks) or all pro maps (bans)."""
+
+    def setUp(self):
+        from mira.model import prorates
+        import numpy as np
+        self.np, self.prorates = np, prorates
+        self.names = [f"B{i}" for i in range(8)]
+        self.maps = [("gemGrab", "x"), ("gemGrab", "y"), ("heist", "z")]
+        self.modes = ["gemGrab", "heist"]
+        self.masters = np.full((8, 3), 1 / 8)
+
+    def rates(self, rows, **kw):
+        return self.prorates.compute(rows, self.names, self.maps, self.modes, self.masters, until="2026-10-10", **kw)
+
+    def test_no_pro_data_falls_back_to_masters(self):
+        r = self.rates([])
+        self.np.testing.assert_allclose(r.pick, self.masters)
+
+    def test_map_rate_moves_toward_pros_and_spills_to_the_mode(self):
+        rows = [dict(dict(row(["B0", "B1", "B2"], ["B3", "B4", "B5"], ["B6"], [], map_name="x")), mode="Gem Grab")] * 10
+        r = self.rates(rows)
+        self.assertGreater(r.pick[0, 0], r.pick[0, 1])   # picked on x: highest there
+        self.assertGreater(r.pick[0, 1], 1 / 8)          # same mode, other map: some spill
+        self.assertAlmostEqual(r.pick[0, 2], 1 / 8)      # other mode: untouched
+        self.assertGreater(r.ban[6, 0], r.ban[7, 0])     # banned on x
+        self.np.testing.assert_allclose(r.pick.sum(axis=0), 1.0)
+
+    def test_old_maps_are_left_out(self):
+        rows = [dict(dict(row(["B0", "B1", "B2"], ["B3", "B4", "B5"], ["B6"])), mode="Gem Grab", played_on="2025-01-01")]
+        self.np.testing.assert_allclose(self.rates(rows).pick, self.masters)
+
+
+class EngineProTermsTests(unittest.TestCase):
+    def model(self, rho=0.0, ban_lambda=0.0, with_pro=True):
+        from mira.engine.model import Model
+        data = dict(toy_model().data)
+        B = len(data["brawlers"])
+        data["ranking"] = {"kappa": 0.0, "gamma": 0.0, "rho": rho, "ban_lambda": ban_lambda,
+                           "strength_sd": [[[0.0]] * B]}
+        if with_pro:
+            data["pro"] = {"log_pick": [[0.0 if b == 3 else -5.0] for b in range(B)],
+                           "ban": [[0.9 if b == 7 else 0.0] for b in range(B)]}
+        return Model(data)
+
+    def test_rho_favours_what_pros_pick(self):
+        m = self.model(rho=0.5)
+        self.assertGreater(m.adjust(3, 0), m.adjust(4, 0))
+        self.assertEqual(self.model(rho=0.5, with_pro=False).adjust(3, 0), 0.0)
+
+    def test_ban_lambda_lifts_pro_bans(self):
+        from mira.engine.search import suggest_bans
+        plain = [b for b, _, _ in suggest_bans(self.model(), 0, True, set(), n=3)]
+        pro_ = [b for b, _, _ in suggest_bans(self.model(ban_lambda=1.0), 0, True, set(), n=3)]
+        self.assertNotIn(7, plain)
+        self.assertEqual(pro_[0], 7)
+
+
+class ChooseTests(unittest.TestCase):
+    def test_takes_the_most_pro_like_setting_that_still_wins(self):
+        from mira.model import protune
+        from mira.model.evaluate import RankingRow
+        rows = [RankingRow(0, 0, [0.56], [0.5], [10000], [0.05], 0.0),
+                RankingRow(0, 0.05, [0.558], [0.5], [10000], [0.01], 0.0),
+                RankingRow(0, 0.05, [0.54], [0.5], [10000], [0.0], 0.2)]
+        agree = {(0, 0, 0.0): 0.07, (0, 0.05, 0.0): 0.2, (0, 0.05, 0.2): 0.37}
+        best = protune.choose(rows, agree)
+        self.assertEqual((best.gamma, best.rho), (0.05, 0.0))  # rho=0.2 wins too rarely in Masters

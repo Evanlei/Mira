@@ -39,8 +39,9 @@ class ProMatch:
     played_on: str
 
 
-def resolve(model: Model, rows: list[sqlite3.Row]) -> tuple[list[ProMatch], Counter]:
-    """Rows the model can score, and why the others were skipped."""
+def resolve(model, rows: list[sqlite3.Row]) -> tuple[list[ProMatch], Counter]:
+    """Rows the model can score, and why the others were skipped. ``model`` needs ``names``
+    (brawler index -> name) and ``maps`` (map index -> (mode, map)): an engine Model or Matches-like."""
     by_name = {pro.norm(n): i for i, n in enumerate(model.names)}
     for alias, target in pro.BRAWLER_ALIASES.items():
         if target in by_name:

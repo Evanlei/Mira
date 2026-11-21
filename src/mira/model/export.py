@@ -91,12 +91,13 @@ def pick_model_dict(pm, threshold: float = 0.01) -> dict:
     }
 
 
-def ranking_dict(kappa: float, gamma: float, sd) -> dict:
+def ranking_dict(kappa: float, gamma: float, sd, rho: float = 0.0, ban_lambda: float = 0.0) -> dict:
     """How the engines rank our own candidate picks (Model.adjust in src/mira/engine/model.py)."""
     return {
         "doc": "rank our candidates by gain - kappa * strength_sd[tier][b][map] + gamma * log_base[b][map] "
-               "(the pick model's tier-aware log pick rate); reported win chances never include this.",
-        "kappa": float(kappa), "gamma": float(gamma),
+               "(the pick model's tier-aware log pick rate) + rho * pro.log_pick[b][map]; reported win "
+               "chances never include this. Ban suggestions rank by win gain + ban_lambda * pro.ban[b][map].",
+        "kappa": float(kappa), "gamma": float(gamma), "rho": float(rho), "ban_lambda": float(ban_lambda),
         "strength_sd": [[[round(float(x), 3) for x in row] for row in tier] for tier in sd],
     }
 

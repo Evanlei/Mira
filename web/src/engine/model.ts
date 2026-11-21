@@ -32,7 +32,9 @@ export type ModelJson = {
   };
   games?: { brawler: number[]; brawler_map: number[][] };
   /** How the search ranks our own candidates (Model.adjust). Absent in older files: off. */
-  ranking?: { kappa: number; gamma: number; strength_sd: number[][][] }; // sd: [n_tiers][B][n_maps]
+  ranking?: { kappa: number; gamma: number; rho?: number; ban_lambda?: number; strength_sd: number[][][] }; // sd: [n_tiers][B][n_maps]
+  /** Pro esports drafts (Liquipedia): log pick share and ban rate, [B][n_maps]. */
+  pro?: { log_pick: number[][]; ban: number[][]; since: string; until: string; n_maps: number };
   patches?: { date: string; changes: Record<string, string> }[];
 };
 
@@ -67,6 +69,10 @@ export class Model {
   readonly kappa: number;
   readonly gamma: number;
   private readonly sd?: number[][];
+  readonly rho: number;
+  readonly banLambda: number;
+  private readonly proLogPick?: number[][];
+  private readonly proBan?: number[][];
 
   constructor(
     readonly data: ModelJson,
@@ -108,6 +114,10 @@ export class Model {
     this.kappa = data.ranking?.kappa ?? 0;
     this.gamma = data.ranking?.gamma ?? 0;
     this.sd = data.ranking?.strength_sd?.[this.tier];
+    this.proLogPick = data.pro?.log_pick;
+    this.proBan = data.pro?.ban;
+    this.rho = this.proLogPick ? (data.ranking?.rho ?? 0) : 0;
+    this.banLambda = this.proBan ? (data.ranking?.ban_lambda ?? 0) : 0;
   }
 
   brawler(name: string): number {
@@ -198,7 +208,13 @@ export class Model {
   adjust(b: number, mp: number): number {
     let a = this.kappa ? -this.kappa * this.sdOf(b, mp) : 0;
     if (this.gamma) a += this.gamma * this.logBase[b][mp];
+    if (this.rho) a += this.rho * this.proLogPick![b][mp];
     return a;
+  }
+
+  /** Share of recent pro maps where b was banned on this map (shrunk toward the mode); 0 without pro data. */
+  proBanRate(b: number, mp: number): number {
+    return this.proBan ? this.proBan[b][mp] : 0;
   }
 
   // -- pick model -------------------------------------------------------------

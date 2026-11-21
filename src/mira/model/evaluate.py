@@ -260,6 +260,7 @@ class RankingRow:
     predicted: list[float]  # per coverage: the win model's (plain) prediction for the same picks
     n: list[int]            # per coverage: how many picks
     rare: list[float]       # per coverage: share of those picks with < RARE_GAMES games on the map
+    rho: float = 0.0        # weight of the pro pick rate (0 when there's no pro data)
 
     def se(self, c: int) -> float:
         r = self.realized[c]
@@ -284,7 +285,8 @@ def strength_table(model: WinModel, mode_of_map: np.ndarray) -> np.ndarray:
 
 def ranking_report(model: WinModel, log_base_tier: np.ndarray, sd: np.ndarray, games: np.ndarray, m: Matches,
                    kappas=KAPPA_GRID, gammas=GAMMA_GRID, coverages=COVERAGES,
-                   max_matches: int = 40000) -> list[RankingRow]:
+                   max_matches: int = 40000, pro_log: np.ndarray | None = None,
+                   rhos=(0.0,)) -> list[RankingRow]:
     """How well each (kappa, gamma) ranks our picks, on held-out matches.
 
     Every held-out pick is a situation (map, 2 allies, 3 enemies) and the brawler actually
@@ -322,6 +324,9 @@ def ranking_report(model: WinModel, log_base_tier: np.ndarray, sd: np.ndarray, g
     for j in range(en.shape[1]):
         gain += mu[:, en[:, j], k_].T
     unc, lb = sd[ti, :, mp_], log_base_tier[ti, :, mp_]
+    pl = pro_log[:, mp_].T if pro_log is not None else np.zeros_like(lb)
+    if pro_log is None:
+        rhos = (0.0,)
     blocked = np.zeros_like(gain, dtype=bool)
     for cols in (al, en):
         for j in range(cols.shape[1]):
@@ -329,17 +334,18 @@ def ranking_report(model: WinModel, log_base_tier: np.ndarray, sd: np.ndarray, g
     rare = games[tgt, mp_] < RARE_GAMES
 
     out = []
-    for kappa in kappas:
-        for gamma in gammas:
-            score = gain - kappa * unc + gamma * lb
-            score[blocked] = -np.inf
-            regret = score[rows_n, tgt] - score.max(axis=1)  # 0 = they played our top choice
-            row = RankingRow(kappa, gamma, [], [], [], [])
-            for c in coverages:
-                sel = regret >= np.quantile(regret, 1 - c)
-                row.realized.append(float(yy[sel].mean())); row.predicted.append(float(pp[sel].mean()))
-                row.n.append(int(sel.sum())); row.rare.append(float(rare[sel].mean()))
-            out.append(row)
+    for rho in rhos:
+        for kappa in kappas:
+            for gamma in gammas:
+                score = gain - kappa * unc + gamma * lb + rho * pl
+                score[blocked] = -np.inf
+                regret = score[rows_n, tgt] - score.max(axis=1)  # 0 = they played our top choice
+                row = RankingRow(kappa, gamma, [], [], [], [], rho)
+                for c in coverages:
+                    sel = regret >= np.quantile(regret, 1 - c)
+                    row.realized.append(float(yy[sel].mean())); row.predicted.append(float(pp[sel].mean()))
+                    row.n.append(int(sel.sum())); row.rare.append(float(rare[sel].mean()))
+                out.append(row)
     return out
 
 

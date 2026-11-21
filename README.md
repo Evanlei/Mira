@@ -241,6 +241,25 @@ Liquipedia's API terms (descriptive User-Agent, gzip, one request every 2.5 s) a
 pages edited since the last sync. Pick order within a team isn't recorded. Liquipedia content is
 CC-BY-SA: credit it wherever pro data is shown.
 
+`train` turns them into per-map pro pick and ban rates (`src/mira/model/prorates.py`): the last 60
+days, half-life 15 days, shrunk map -> mode -> Masters pick rate (picks) or all pro maps (bans).
+The window is short on purpose: pro bans from the 30-60 days before a test window predict its bans
+(about 41% in the top 6), bans from 90+ days back do no better than the Ranked pick rate, because
+balance changes keep moving the meta. Ban suggestions rank by win gain + `ban_lambda` x pro ban
+rate; our picks can add `rho` x log pro pick rate. Both are tuned in `train` (`model/protune.py`)
+on the newest 60 days of pro maps, with rates built only from older ones:
+
+- Picks: a setting must keep the real held-out win rate of the Masters picks we'd rank best within
+  one standard error of the best (that objective alone favours rare brawlers, whose games are
+  mostly played by their mains), and among those it takes the one that ranks pro picks highest.
+  First result (Nov 2026): `gamma` 0.05 doubles pro agreement (top 5: 7% -> 20%) at no cost in
+  Masters; `rho` > 0 is rejected because pro favourites win *less* in Masters solo queue.
+- Bans: pro bans in our top 6 go from 29% to 40% at `ban_lambda` 0.05.
+
+Ranked battle logs don't give pick order (a team's players are listed roughly by rank), but
+Liquipedia lists picks in pick order: on maps with a known first pick, popularity falls with the
+1-2-2-1 turn (0.52% of pro picks at turn 1, 0.36% at turn 6).
+
 `pro-eval` (`src/mira/proeval.py`) scores a model on recent pro maps it knows: whether the win model
 calls the winner, how many pro bans are in Mira's top bans (vs Ranked pick rate and the pros' own
 ban rate on the map in other matches), and where Mira ranks each pro pick with the other five known

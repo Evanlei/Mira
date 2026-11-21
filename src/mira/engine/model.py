@@ -56,6 +56,13 @@ class Model:
         self.gamma = r.get("gamma", 0.0) if p else 0.0
         sd = r.get("strength_sd")  # [n_tiers][B][n_maps]
         self.sd = sd[self.tier] if sd else None
+        # Pro drafts (Liquipedia): rho weighs the pro pick rate in our ranking, ban_lambda the pro
+        # ban rate in ban suggestions. Without a "pro" block both are off.
+        pro = data.get("pro") or {}
+        self.pro_log_pick = pro.get("log_pick")  # [B][n_maps]
+        self.pro_ban = pro.get("ban")            # [B][n_maps]
+        self.rho = r.get("rho", 0.0) if self.pro_log_pick else 0.0
+        self.ban_lambda = r.get("ban_lambda", 0.0) if self.pro_ban else 0.0
 
     @classmethod
     def load(cls, path: str | Path, tier: int | None = None) -> "Model":
@@ -138,11 +145,17 @@ class Model:
         -kappa * sd: a pessimistic (lower-bound) reading of a noisy estimate, so the brawler with
         the highest *estimate* doesn't win just because it has the fewest games (optimizer's curse).
         +gamma * log pick rate: what Masters players actually pick on the map is evidence too; a
-        brawler almost nobody picks there needs a much bigger edge to be recommended."""
+        brawler almost nobody picks there needs a much bigger edge to be recommended.
+        +rho * log pro pick rate: the same for what pros pick there (shrunk toward Masters)."""
         a = -self.kappa * self.sd_of(b, mp) if self.kappa else 0.0
         if self.gamma:
             a += self.gamma * self.log_base[b][mp]
+        if self.rho:
+            a += self.rho * self.pro_log_pick[b][mp]
         return a
+
+    def pro_ban_rate(self, b: int, mp: int) -> float:
+        return self.pro_ban[b][mp] if self.pro_ban else 0.0
 
     # -- pick model ---------------------------------------------------------
 

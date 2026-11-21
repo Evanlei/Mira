@@ -20,7 +20,8 @@ def test_ranking(data: dict) -> dict:
     bm = data.get("games", {}).get("brawler_map")
     B, n_maps = len(data["brawlers"]), len(data["maps"])
     sd = [[round(1 / math.sqrt(0.25 * (bm[b][j] if bm else 100) + 6), 3) for j in range(n_maps)] for b in range(B)]
-    return {"kappa": 1.5, "gamma": 0.05, "strength_sd": [sd] * n_tiers}
+    # rho and ban_lambda only take effect when the model has a "pro" block.
+    return {"kappa": 1.5, "gamma": 0.05, "rho": 0.1, "ban_lambda": 0.05, "strength_sd": [sd] * n_tiers}
 
 
 def write(model_path: str, out_path: str, n_cases: int = 16, seed: int = 7) -> int:

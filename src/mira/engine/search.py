@@ -186,13 +186,19 @@ class Searcher:
         return Result(win, suggestions, line, turns[0][1], turns[0][0])
 
 
+PRO_BAN_CANDIDATES = 6  # pro favourites added to the ban candidates when ban_lambda > 0
+
+
 def suggest_bans(model: Model, mp: int, we_first: bool, already_banned: set[int], n: int = 5,
                  candidates: int = 15, settings: Settings | None = None,
                  allowed: set[int] | None = None) -> list[tuple[int, float, float]]:
     """Bans ranked by how much removing the brawler raises our expected win chance.
 
     Returns (brawler, win chance if banned, gain vs not banning). Candidates are the brawlers
-    the opponent is most likely to pick on this map, weighted by strength there.
+    the opponent is most likely to pick on this map, weighted by strength there, plus (when the
+    model has pro data and ban_lambda > 0) the pros' most-banned brawlers there. They're ranked
+    by gain + ban_lambda * pro ban rate: Ranked has no ban data, so the pros' bans are our only
+    direct evidence of what's worth banning.
     """
     s = settings or Settings(our_k=6, our_pairs=8, their_n=4, their_pairs=6, pair_pool=6)
     base = Searcher(model, mp, set(already_banned), allowed, s).run((), (), we_first).win
@@ -200,9 +206,13 @@ def suggest_bans(model: Model, mp: int, we_first: bool, already_banned: set[int]
     # Threat uses the pessimistic strength, so a noisy few-game brawler isn't a top ban candidate.
     pool = sorted(p, key=lambda b: p[b] * (1 + max(0.0, model.strength(b, mp) - model.kappa * model.sd_of(b, mp))),
                   reverse=True)[:candidates]
+    if model.ban_lambda:
+        # Also try what pros ban most here; rank by gain + ban_lambda * pro ban rate.
+        pool += [b for b in sorted(p, key=lambda b: model.pro_ban_rate(b, mp), reverse=True)[:PRO_BAN_CANDIDATES]
+                 if b not in pool]
     out = []
     for b in pool:
         v = Searcher(model, mp, set(already_banned) | {b}, allowed, s).run((), (), we_first).win
         out.append((b, v, v - base))
-    out.sort(key=lambda x: x[2], reverse=True)
+    out.sort(key=lambda x: x[2] + model.ban_lambda * model.pro_ban_rate(x[0], mp), reverse=True)
     return out[:n]
